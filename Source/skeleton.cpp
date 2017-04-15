@@ -41,7 +41,7 @@ std::vector<Triangle> triangles;
 
 void Update();
 void Draw();
-void Interpolate( vec3 a, vec3 b, vector<vec3>& result );
+// void Interpolate( vec3 a, vec3 b, vector<vec3>& result );
 
 int main( int argc, char* argv[] )
 {
@@ -86,13 +86,13 @@ void Draw()
     SDL_UpdateRect( screen, 0, 0, 0, 0 );
 }
 
-void Interpolate( vec3 a, vec3 b, vector<vec3>& result )
-{
-    for (size_t i = 0;  i < result.size(); i++)
-    {
-        result[i].x = (a.x + (b.x - a.x) / result.size() * i);
-        result[i].y = (a.y + (b.y - a.y) / result.size() * i);
-        result[i].z = (a.z + (b.z - a.z) / result.size() * i);
-    }
+// void Interpolate( vec3 a, vec3 b, vector<vec3>& result )
+// {
+//     for (size_t i = 0;  i < result.size(); i++)
+//     {
+//         result[i].x = (a.x + (b.x - a.x) / result.size() * i);
+//         result[i].y = (a.y + (b.y - a.y) / result.size() * i);
+//         result[i].z = (a.z + (b.z - a.z) / result.size() * i);
+//     }
 
-}
+// }
