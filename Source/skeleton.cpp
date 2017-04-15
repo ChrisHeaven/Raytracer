@@ -1,11 +1,4 @@
 /*
-1.0.cpp
-Last week
-Y
-You uploaded an item
-Jan 30
-C++
-1.0.cpp
 No recorded activity before January 30, 2017
 */
 
@@ -23,34 +16,41 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 500;
-const int SCREEN_HEIGHT = 500;
+const int SCREEN_WIDTH = 100;
+const int SCREEN_HEIGHT = 100;
 SDL_Surface* screen;
 int t;
-vector<vec3> stars( 1000 );
+vector<vec3> stars(1000);
 vector<float> x_direction(1000);
 vector<float> y_direction(1000);
 vector<float> z_direction(1000);
 //vec3 color(1.0, 1.0, 1.0);
-float f = SCREEN_HEIGHT / 2;
+float f = 1.0;
 vec3 s(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, -f);
 
 std::vector<Triangle> triangles;
+struct Intersection {
+    vec3 position;
+    float distance;
+    int triangleIndex;
+};
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
 
 void Update();
 void Draw();
+vec3 intersection_point(Triangle triangle, vec3 d, vec3 s);
+bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection);
 // void Interpolate( vec3 a, vec3 b, vector<vec3>& result );
 
-int main( int argc, char* argv[] )
+int main(int argc, char* argv[])
 {
-    screen = InitializeSDL( SCREEN_WIDTH, SCREEN_HEIGHT );
+    screen = InitializeSDL(SCREEN_WIDTH, SCREEN_HEIGHT);
     t = SDL_GetTicks(); // Set start value for timer.
 
     //int i = 0;
-    while ( NoQuitMessageSDL() )
+    while (NoQuitMessageSDL())
     {
         //cout << stars[10].x << endl;
         Update();
@@ -75,37 +75,82 @@ void Update()
 
 void Draw()
 {
-    SDL_FillRect( screen, 0, 0 );
-    if ( SDL_MUSTLOCK(screen) )
+    SDL_FillRect(screen, 0, 0);
+    if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
 
     LoadTestModel(triangles);
-
+    Intersection intersection;
     for (int i = 0; i < SCREEN_HEIGHT; i++)
     {
         for (int j = 0; j < SCREEN_WIDTH; j++)
         {
             vec3 d(j - SCREEN_WIDTH / 2, i - SCREEN_HEIGHT / 2, f);
+            // for (int num; num < triangles.size(); num++)
+            // {
+            //     intersection_point(triangles[num], d, s);
+            // }
+            ClosestIntersection(s, d, triangles, intersection);
+            vec3 color( 1.0, 0.0, 0.0 );
+            PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
         }
     }
 
-    if ( SDL_MUSTLOCK(screen) )
+    if (SDL_MUSTLOCK(screen))
         SDL_UnlockSurface(screen);
 
-    SDL_UpdateRect( screen, 0, 0, 0, 0 );
+    SDL_UpdateRect(screen, 0, 0, 0, 0);
 }
 
-vec3 intersection_point(Triangle triangle, vec3 d, vec3 s)
+// vec3 intersection_point(Triangle triangle, vec3 d, vec3 s)
+// {
+//     vec3 v0 = triangle.v0;
+//     vec3 v1 = triangle.v1;
+//     vec3 v2 = triangle.v2;
+//     vec3 e1 = v1 - v0;
+//     vec3 e2 = v2 - v0;
+//     vec3 b = s - v0;
+//     mat3 A( -d, e1, e2 );
+//     vec3 x = glm::inverse(A) * b;
+//     return x;
+// }
+
+bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection)
 {
-    vec3 v0 = triangle.v0;
-    vec3 v1 = triangle.v1;
-    vec3 v2 = triangle.v2;
-    vec3 e1 = v1 - v0;
-    vec3 e2 = v2 - v0;
-    vec3 b = s - v0;
-    mat3 A( -d, e1, e2 );
-    vec3 x = glm::inverse( A ) * b;
-    return x;
+    bool flag = false;
+    float min = 0.0;
+    int triangleIndex;
+    for (size_t i = 0; i < triangles.size(); i++) {
+        vec3 v0 = triangles[i].v0;
+        vec3 v1 = triangles[i].v1;
+        vec3 v2 = triangles[i].v2;
+
+        vec3 e1 = v1 - v0;
+        vec3 e2 = v2 - v0;
+        vec3 b = start - v0;
+
+        mat3 A(-dir, e1, e2);
+        vec3 x = glm::inverse(A) * b;
+
+        if (x[1] > 0 && x[2] > 0 && (x[1] + x[2]) < 1 && x[0] > 0) {
+            if (!flag) {
+                min = x[0];
+                triangleIndex = i;
+            }
+            flag = true;
+            if (min > x[0]) {
+                min = x[0];
+                triangleIndex = i;
+            }
+
+        }
+
+    }
+
+    cloestIntersection.position = dir;
+    cloestIntersection.distance = min;
+    cloestIntersection.triangleIndex = triangleIndex;
+    return true;
 }
 
 // void Interpolate( vec3 a, vec3 b, vector<vec3>& result )

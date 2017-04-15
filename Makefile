@@ -4,7 +4,7 @@ FILE=skeleton
 #   Directories
 S_DIR=Source
 B_DIR=Build
-
+GLMDIR=/usr/include/glm
 ########
 #   Output
 EXEC=$(B_DIR)/$(FILE)
