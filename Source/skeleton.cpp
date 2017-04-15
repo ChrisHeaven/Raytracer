@@ -9,6 +9,7 @@ C++
 No recorded activity before January 30, 2017
 */
 
+#include <cstddef>
 #include <iostream>
 #include <glm/glm.hpp>
 #include <SDL/SDL.h>
@@ -32,9 +33,9 @@ vector<float> y_direction(1000);
 vector<float> z_direction(1000);
 //vec3 color(1.0, 1.0, 1.0);
 float f = SCREEN_HEIGHT / 2;
+vec3 s(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, -f);
 
 std::vector<Triangle> triangles;
-
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
@@ -80,10 +81,31 @@ void Draw()
 
     LoadTestModel(triangles);
 
+    for (int i = 0; i < SCREEN_HEIGHT; i++)
+    {
+        for (int j = 0; j < SCREEN_WIDTH; j++)
+        {
+            vec3 d(j - SCREEN_WIDTH / 2, i - SCREEN_HEIGHT / 2, f);
+        }
+    }
+
     if ( SDL_MUSTLOCK(screen) )
         SDL_UnlockSurface(screen);
 
     SDL_UpdateRect( screen, 0, 0, 0, 0 );
+}
+
+vec3 intersection_point(Triangle triangle, vec3 d, vec3 s)
+{
+    vec3 v0 = triangle.v0;
+    vec3 v1 = triangle.v1;
+    vec3 v2 = triangle.v2;
+    vec3 e1 = v1 - v0;
+    vec3 e2 = v2 - v0;
+    vec3 b = s - v0;
+    mat3 A( -d, e1, e2 );
+    vec3 x = glm::inverse( A ) * b;
+    return x;
 }
 
 // void Interpolate( vec3 a, vec3 b, vector<vec3>& result )
