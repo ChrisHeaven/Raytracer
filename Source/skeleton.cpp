@@ -10,6 +10,8 @@ No recorded activity before January 30, 2017
 #include "TestModel.h"
 #include "limits.h"
 
+#define max(a,b) (((a)>(b)) ? (a):(b))
+
 using namespace std;
 using glm::vec3;
 using glm::mat3;
@@ -17,8 +19,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 500;
-const int SCREEN_HEIGHT = 500;
+const int SCREEN_WIDTH = 300;
+const int SCREEN_HEIGHT = 300;
 SDL_Surface* screen;
 int t;
 // vector<vec3> stars(1000);
@@ -30,9 +32,13 @@ float f = 1.0;
 float zz = 3.0;
 float yaw = 0.0f * 3.1415926 / 180;
 vec3 s(0, 0, -zz);
+vec3 light_pos(0, -0.5, -0.7);
+vec3 light_colour = 14.f * vec3(1, 1, 1);
 
 std::vector<Triangle> triangles;
-struct Intersection {
+
+struct Intersection
+{
     vec3 position;
     float distance;
     int triangleIndex;
@@ -44,8 +50,8 @@ struct Intersection {
 void Update();
 void Draw();
 vec3 intersection_point(Triangle triangle, vec3 d, vec3 s);
-bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection);
-// void Interpolate( vec3 a, vec3 b, vector<vec3>& result );
+bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection);
+vec3 direct_light(vec3 intersection_pos, int i);
 
 int main(int argc, char* argv[])
 {
@@ -106,6 +112,7 @@ void Draw()
     LoadTestModel(triangles);
     Intersection intersection;
     vec3 d;
+    vec3 light_area, intersection_pos;
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
 
     for (int i = 0; i < SCREEN_HEIGHT; ++i)
@@ -121,12 +128,16 @@ void Draw()
             d = vec3((-0.5 + x * 1.0 / srceen_width), (-0.5 + y * 1.0 / screen_height), f);
             d = R * d;
 
-            if (ClosestIntersection(s, d, triangles, intersection))
-                PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
+
+            if (closest_intersection(s, d, triangles, intersection))
+            {
+                intersection_pos = s + intersection.distance * d;
+                light_area = direct_light(intersection_pos, i);
+                // PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
+                PutPixelSDL( screen, j, i, light_area);
+            }
             else
                 PutPixelSDL( screen, j, i, black);
-
-            //vec3 color( 1.0, 0.0, 0.0 );
 
             // float m = std::numeric_limits<float>::max();
             // printf("%f\n", m);
@@ -140,13 +151,14 @@ void Draw()
     SDL_UpdateRect(screen, 0, 0, 0, 0);
 }
 
-bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection)
+bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection)
 {
     bool flag = false;
     float min = 0.0;
     int triangleIndex;
-    vec3 v0, v1, v2, e1, e2, b, x;
+    vec3 v0, v1, v2, e1, e2, b, x, intersection_pos;
     mat3 A;
+
     for (size_t i = 0; i < triangles.size(); i++) {
         //printf("b\n");
         v0 = triangles[i].v0;
@@ -175,15 +187,34 @@ bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles
             }
         }
     }
+
     if (flag)
     {
-        cloestIntersection.position = dir;
+        cloestIntersection.position = start + min * dir;
         cloestIntersection.distance = min;
         cloestIntersection.triangleIndex = triangleIndex;
         return true;
     }
     else
         return false;
+}
+
+vec3 direct_light(vec3 intersection_pos, int i)
+{
+    vec3 surface_light;
+    float r;
+    vec3 light_area;
+
+    surface_light = light_pos - intersection_pos;
+    r = glm::length(surface_light);
+    float result = surface_light[0] * triangles[i].normal[0] + surface_light[1] * triangles[i].normal[1] + surface_light[2] * triangles[i].normal[2];
+    float s = 4.0 * 3.1415926 * r * r;
+    if (result > 0.0)
+        light_area = result / s * light_colour;
+    else
+        light_area = vec3(0.0, 0.0, 0.0);
+
+    return light_area;
 }
 
 // void Interpolate( vec3 a, vec3 b, vector<vec3>& result )
