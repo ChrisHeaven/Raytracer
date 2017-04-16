@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 700;
-const int SCREEN_HEIGHT = 700;
+const int SCREEN_WIDTH = 500;
+const int SCREEN_HEIGHT = 500;
 SDL_Surface* screen;
 int t;
 // vector<vec3> stars(1000);
@@ -28,6 +28,7 @@ int t;
 //vec3 color(1.0, 1.0, 1.0);
 float f = 1.0;
 float zz = 3.0;
+float yaw = 0.0f * 3.1415926 / 180;
 vec3 s(0, 0, -zz);
 
 std::vector<Triangle> triangles;
@@ -57,7 +58,6 @@ int main(int argc, char* argv[])
         //cout << stars[10].x << endl;
         Update();
         Draw();
-        //i++;
     }
 
     SDL_SaveBMP( screen, "screenshot.bmp" );
@@ -73,10 +73,32 @@ void Update()
     t = t2;
     cout << "Render time: " << dt << " ms." << endl;
 
+    Uint8* keystate = SDL_GetKeyState(0);
+    if (keystate[SDLK_UP])
+    {
+        // Move camera forward
+        s.z += 0.1f;
+    }
+    if (keystate[SDLK_DOWN])
+    {
+        // Move camera backward
+        s.z -= 0.1f;
+    }
+    if (keystate[SDLK_LEFT])
+    {
+        // Rotate the camera along the y axis
+        yaw += 0.1f;
+    }
+    if (keystate[SDLK_RIGHT])
+    {
+        // Rotate the camera along the y axis
+        yaw -= 0.1f;
+    }
 }
 
 void Draw()
 {
+    vec3 black(0.0, 0.0, 0.0);
     SDL_FillRect(screen, 0, 0);
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
@@ -84,6 +106,8 @@ void Draw()
     LoadTestModel(triangles);
     Intersection intersection;
     vec3 d;
+    mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
+
     for (int i = 0; i < SCREEN_HEIGHT; ++i)
     {
         for (int j = 0; j < SCREEN_WIDTH; ++j)
@@ -95,9 +119,15 @@ void Draw()
             //vec3 d(j - SCREEN_WIDTH / 2, i - SCREEN_HEIGHT / 2, f);
             //float hhhh = -0.5 + j * 1 / SCREEN_WIDTH;
             d = vec3((-0.5 + x * 1.0 / srceen_width), (-0.5 + y * 1.0 / screen_height), f);
-            ClosestIntersection(s, d, triangles, intersection);
+            d = R * d;
+
+            if (ClosestIntersection(s, d, triangles, intersection))
+                PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
+            else
+                PutPixelSDL( screen, j, i, black);
+
             //vec3 color( 1.0, 0.0, 0.0 );
-            PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
+
             // float m = std::numeric_limits<float>::max();
             // printf("%f\n", m);
 
@@ -132,7 +162,7 @@ bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles
         //printf("a\n");
         x = glm::inverse(A) * b;
         //printf("%f %f %f\n", x[0], x[1], x[2]);
-        if (x[1] > 0 && x[2] > 0 && (x[1] + x[2]) < 1 && x[0] > 0) {
+        if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0) {
             //printf("c\n");
             if (!flag) {
                 min = x[0];
@@ -143,15 +173,17 @@ bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles
                 min = x[0];
                 triangleIndex = i;
             }
-
         }
-
     }
-
-    cloestIntersection.position = dir;
-    cloestIntersection.distance = min;
-    cloestIntersection.triangleIndex = triangleIndex;
-    return true;
+    if (flag)
+    {
+        cloestIntersection.position = dir;
+        cloestIntersection.distance = min;
+        cloestIntersection.triangleIndex = triangleIndex;
+        return true;
+    }
+    else
+        return false;
 }
 
 // void Interpolate( vec3 a, vec3 b, vector<vec3>& result )
