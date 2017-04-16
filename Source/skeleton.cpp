@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 200;
-const int SCREEN_HEIGHT = 200;
+const int SCREEN_WIDTH = 700;
+const int SCREEN_HEIGHT = 700;
 SDL_Surface* screen;
 int t;
 // vector<vec3> stars(1000);
@@ -84,16 +84,17 @@ void Draw()
     LoadTestModel(triangles);
     Intersection intersection;
     vec3 d;
-    for (int i = 0; i < SCREEN_HEIGHT; i++)
+    for (int i = 0; i < SCREEN_HEIGHT; ++i)
     {
-        for (int j = 0; j < SCREEN_WIDTH; j++)
+        for (int j = 0; j < SCREEN_WIDTH; ++j)
         {
+            float x = j;
+            float y = i;
+            float srceen_width = SCREEN_WIDTH;
+            float screen_height = SCREEN_HEIGHT;
             //vec3 d(j - SCREEN_WIDTH / 2, i - SCREEN_HEIGHT / 2, f);
-            d = vec3(-0.5 + j * 1 / SCREEN_WIDTH, -0.5 + i * 1 / SCREEN_HEIGHT, f);
-            // for (int num; num < triangles.size(); num++)
-            // {
-            //     intersection_point(triangles[num], d, s);
-            // }
+            //float hhhh = -0.5 + j * 1 / SCREEN_WIDTH;
+            d = vec3((-0.5 + x * 1.0 / srceen_width), (-0.5 + y * 1.0 / screen_height), f);
             ClosestIntersection(s, d, triangles, intersection);
             //vec3 color( 1.0, 0.0, 0.0 );
             PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
@@ -108,19 +109,6 @@ void Draw()
 
     SDL_UpdateRect(screen, 0, 0, 0, 0);
 }
-
-// vec3 intersection_point(Triangle triangle, vec3 d, vec3 s)
-// {
-//     vec3 v0 = triangle.v0;
-//     vec3 v1 = triangle.v1;
-//     vec3 v2 = triangle.v2;
-//     vec3 e1 = v1 - v0;
-//     vec3 e2 = v2 - v0;
-//     vec3 b = s - v0;
-//     mat3 A( -d, e1, e2 );
-//     vec3 x = glm::inverse(A) * b;
-//     return x;
-// }
 
 bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection)
 {
@@ -140,11 +128,12 @@ bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles
         b = start - v0;
 
         A = mat3(-dir, e1, e2);
+        //cout << A[0][1] << endl;
         //printf("a\n");
         x = glm::inverse(A) * b;
-        printf("%f %f %f\n", x[0], x[1], x[2]);
+        //printf("%f %f %f\n", x[0], x[1], x[2]);
         if (x[1] > 0 && x[2] > 0 && (x[1] + x[2]) < 1 && x[0] > 0) {
-            printf("c\n");
+            //printf("c\n");
             if (!flag) {
                 min = x[0];
                 triangleIndex = i;
