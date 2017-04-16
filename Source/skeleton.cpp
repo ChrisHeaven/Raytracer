@@ -16,17 +16,18 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 100;
-const int SCREEN_HEIGHT = 100;
+const int SCREEN_WIDTH = 111;
+const int SCREEN_HEIGHT = 111;
 SDL_Surface* screen;
 int t;
-vector<vec3> stars(1000);
-vector<float> x_direction(1000);
-vector<float> y_direction(1000);
-vector<float> z_direction(1000);
+// vector<vec3> stars(1000);
+// vector<float> x_direction(1000);
+// vector<float> y_direction(1000);
+// vector<float> z_direction(1000);
 //vec3 color(1.0, 1.0, 1.0);
 float f = 1.0;
-vec3 s(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, -f);
+float zz = 3.0;
+vec3 s(0, 0, -zz);
 
 std::vector<Triangle> triangles;
 struct Intersection {
@@ -131,8 +132,9 @@ bool ClosestIntersection(vec3 start, vec3 dir, const vector<Triangle>& triangles
 
         mat3 A(-dir, e1, e2);
         vec3 x = glm::inverse(A) * b;
-
+        //printf("%f %f %f\n", x[0], x[1], x[2]);
         if (x[1] > 0 && x[2] > 0 && (x[1] + x[2]) < 1 && x[0] > 0) {
+            printf("a");
             if (!flag) {
                 min = x[0];
                 triangleIndex = i;
