@@ -19,8 +19,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 300;
-const int SCREEN_HEIGHT = 300;
+const int SCREEN_WIDTH = 500;
+const int SCREEN_HEIGHT = 500;
 SDL_Surface* screen;
 int t;
 // vector<vec3> stars(1000);
@@ -132,7 +132,6 @@ void Draw()
                 // intersection_pos = s + intersection.distance * d;
                 light_area = direct_light(intersection);
                 light_area = 0.5f * (indirectLight + light_area);
-                // PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
                 PutPixelSDL( screen, j, i, light_area * triangles[intersection.triangleIndex].color);
             }
             else
