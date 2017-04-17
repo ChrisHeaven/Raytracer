@@ -34,7 +34,7 @@ float yaw = 0.0f * 3.1415926 / 180;
 vec3 s(0, 0, -zz);
 vec3 light_pos(0, -0.5, -0.7);
 vec3 light_colour = 14.f * vec3(1, 1, 1);
-
+vec3 indirectLight = 0.5f * vec3( 1, 1, 1 );
 std::vector<Triangle> triangles;
 
 struct Intersection
@@ -111,8 +111,7 @@ void Draw()
 
     LoadTestModel(triangles);
     Intersection intersection;
-    vec3 d;
-    vec3 light_area, intersection_pos;
+    vec3 d, light_area, intersection_pos;
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
 
     for (int i = 0; i < SCREEN_HEIGHT; ++i)
@@ -132,15 +131,14 @@ void Draw()
             {
                 // intersection_pos = s + intersection.distance * d;
                 light_area = direct_light(intersection);
+                light_area = 0.5f * (indirectLight + light_area);
                 // PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
-                PutPixelSDL( screen, j, i, light_area);
+                PutPixelSDL( screen, j, i, light_area * triangles[intersection.triangleIndex].color);
             }
             else
                 PutPixelSDL( screen, j, i, black);
-
             // float m = std::numeric_limits<float>::max();
             // printf("%f\n", m);
-
         }
     }
 
@@ -169,12 +167,8 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         b = start - v0;
 
         A = mat3(-dir, e1, e2);
-        //cout << A[0][1] << endl;
-        //printf("a\n");
         x = glm::inverse(A) * b;
-        //printf("%f %f %f\n", x[0], x[1], x[2]);
         if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0) {
-            //printf("c\n");
             if (!flag) {
                 min = x[0];
                 triangleIndex = i;
@@ -200,20 +194,25 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
 
 vec3 direct_light(const Intersection& point)
 {
-    vec3 surface_light;
+    vec3 surface_light, dis, light_area;
     float r;
-    vec3 light_area;
+    Intersection inter;
 
     surface_light = light_pos - point.position;
     r = glm::length(surface_light);
-    // r = sqrt(surface_light[0] * surface_light[0] + surface_light[1] * surface_light[1] + surface_light[2] * surface_light[2]);
-
     float result = surface_light[0] * triangles[point.triangleIndex].normal[0] + surface_light[1] * triangles[point.triangleIndex].normal[1] + surface_light[2] * triangles[point.triangleIndex].normal[2];
     float s = 4.0 * 3.1415926 * r * r;
     if (result > 0.0)
         light_area = result / s * light_colour;
     else
         light_area = vec3(0.0, 0.0, 0.0);
+
+    if (closest_intersection(point.position, surface_light, triangles, inter))
+    {
+        dis = inter.position - point.position;
+        if (r > glm::length(dis) && result > 0.0 && point.triangleIndex != inter.triangleIndex)
+            light_area = vec3(0.0, 0.0, 0.0);
+    }
 
     return light_area;
 }
