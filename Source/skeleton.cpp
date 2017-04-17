@@ -51,7 +51,7 @@ void Update();
 void Draw();
 vec3 intersection_point(Triangle triangle, vec3 d, vec3 s);
 bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection);
-vec3 direct_light(vec3 intersection_pos, int i);
+vec3 direct_light(const Intersection& intersection_point);
 
 int main(int argc, char* argv[])
 {
@@ -128,11 +128,10 @@ void Draw()
             d = vec3((-0.5 + x * 1.0 / srceen_width), (-0.5 + y * 1.0 / screen_height), f);
             d = R * d;
 
-
             if (closest_intersection(s, d, triangles, intersection))
             {
-                intersection_pos = s + intersection.distance * d;
-                light_area = direct_light(intersection_pos, i);
+                // intersection_pos = s + intersection.distance * d;
+                light_area = direct_light(intersection);
                 // PutPixelSDL( screen, j, i, triangles[intersection.triangleIndex].color);
                 PutPixelSDL( screen, j, i, light_area);
             }
@@ -199,15 +198,17 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         return false;
 }
 
-vec3 direct_light(vec3 intersection_pos, int i)
+vec3 direct_light(const Intersection& point)
 {
     vec3 surface_light;
     float r;
     vec3 light_area;
 
-    surface_light = light_pos - intersection_pos;
+    surface_light = light_pos - point.position;
     r = glm::length(surface_light);
-    float result = surface_light[0] * triangles[i].normal[0] + surface_light[1] * triangles[i].normal[1] + surface_light[2] * triangles[i].normal[2];
+    // r = sqrt(surface_light[0] * surface_light[0] + surface_light[1] * surface_light[1] + surface_light[2] * surface_light[2]);
+
+    float result = surface_light[0] * triangles[point.triangleIndex].normal[0] + surface_light[1] * triangles[point.triangleIndex].normal[1] + surface_light[2] * triangles[point.triangleIndex].normal[2];
     float s = 4.0 * 3.1415926 * r * r;
     if (result > 0.0)
         light_area = result / s * light_colour;
