@@ -10,8 +10,6 @@ No recorded activity before January 30, 2017
 #include "TestModel.h"
 #include "limits.h"
 
-#define max(a,b) (((a)>(b)) ? (a):(b))
-
 using namespace std;
 using glm::vec3;
 using glm::mat3;
@@ -19,15 +17,10 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 500;
-const int SCREEN_HEIGHT = 500;
+const int SCREEN_WIDTH = 200;
+const int SCREEN_HEIGHT = 200;
 SDL_Surface* screen;
 int t;
-// vector<vec3> stars(1000);
-// vector<float> x_direction(1000);
-// vector<float> y_direction(1000);
-// vector<float> z_direction(1000);
-//vec3 color(1.0, 1.0, 1.0);
 float f = 1.0;
 float zz = 3.0;
 float yaw = 0.0f * 3.1415926 / 180;
@@ -215,14 +208,3 @@ vec3 direct_light(const Intersection& point)
 
     return light_area;
 }
-
-// void Interpolate( vec3 a, vec3 b, vector<vec3>& result )
-// {
-//     for (size_t i = 0;  i < result.size(); i++)
-//     {
-//         result[i].x = (a.x + (b.x - a.x) / result.size() * i);
-//         result[i].y = (a.y + (b.y - a.y) / result.size() * i);
-//         result[i].z = (a.z + (b.z - a.z) / result.size() * i);
-//     }
-
-// }
