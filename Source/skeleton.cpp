@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 200;
-const int SCREEN_HEIGHT = 200;
+const int SCREEN_WIDTH = 100;
+const int SCREEN_HEIGHT = 100;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -92,6 +92,36 @@ void Update()
     {
         // Rotate the camera along the y axis
         yaw -= 0.1f;
+    }
+    if (keystate[SDLK_w])
+    {
+        // Move lightsource forward
+        light_pos.z += 0.1f;
+    }
+    if (keystate[SDLK_s])
+    {
+        // Move lightsource backward
+        light_pos.z -= 0.1f;
+    }
+    if (keystate[SDLK_a])
+    {
+        // Move lightsource left
+        light_pos.x -= 0.1f;
+    }
+    if (keystate[SDLK_d])
+    {
+        // Move lightsource right
+        light_pos.x += 0.1f;
+    }
+    if (keystate[SDLK_q])
+    {
+        // Move lightsource up
+        light_pos.y -= 0.1f;
+    }
+    if (keystate[SDLK_e])
+    {
+        // Move lightsource down
+        light_pos.y += 0.1f;
     }
 }
 
