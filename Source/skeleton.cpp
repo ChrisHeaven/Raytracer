@@ -162,8 +162,6 @@ void Draw()
             else
                 map[j][i] = black;
             // PutPixelSDL( screen, j, i, black);
-            // float m = std::numeric_limits<float>::max();
-            // printf("%f\n", m);
         }
     }
 
@@ -175,7 +173,7 @@ void Draw()
         {
             anti_aliasing[width][height] = (map[j][i] + map[j + 1][i] + map[j][i + 1] + map[j + 1][i + 1]) / vec3(4.0f, 4.0f, 4.0f);
             // printf("%d\n", width);
-            PutPixelSDL( screen, width, height, anti_aliasing[width][height]);
+            PutPixelSDL(screen, width, height, anti_aliasing[width][height]);
             width++;
         }
         height++;
