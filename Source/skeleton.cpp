@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 1300;
-const int SCREEN_HEIGHT = 1300;
+const int SCREEN_WIDTH = 200;
+const int SCREEN_HEIGHT = 200;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -130,7 +130,6 @@ void Draw()
     SDL_FillRect(screen, 0, 0);
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
-    // printf("aaaa\n");
 
     LoadTestModel(triangles);
     Intersection intersection;
