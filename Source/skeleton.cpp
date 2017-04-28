@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 600;
-const int SCREEN_HEIGHT = 600;
+const int SCREEN_WIDTH = 1300;
+const int SCREEN_HEIGHT = 1300;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -136,12 +136,12 @@ void Draw()
     Intersection intersection;
     vec3 d, light_area, intersection_pos, sum_colour, pixel_colour;
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
-    vec3 map[SCREEN_WIDTH][SCREEN_HEIGHT];
-    vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2];
+    static vec3 map[SCREEN_WIDTH][SCREEN_HEIGHT];
+    static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2];
 
-    for (int i = 0; i < SCREEN_HEIGHT; ++i)
+    for (int i = 0; i < SCREEN_HEIGHT; i++)
     {
-        for (int j = 0; j < SCREEN_WIDTH; ++j)
+        for (int j = 0; j < SCREEN_WIDTH; j++)
         {
             float x = j;
             float y = i;
