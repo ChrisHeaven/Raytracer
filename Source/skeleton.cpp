@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 700;
-const int SCREEN_HEIGHT = 700;
+const int SCREEN_WIDTH = 600;
+const int SCREEN_HEIGHT = 600;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -35,7 +35,7 @@ struct Intersection
     vec3 position;
     float distance;
     int triangle_index;
-    int anti_aliasing[6];
+    // int anti_aliasing[6];
 };
 
 /* ----------------------------------------------------------------------------*/
@@ -130,6 +130,7 @@ void Draw()
     SDL_FillRect(screen, 0, 0);
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
+    // printf("aaaa\n");
 
     LoadTestModel(triangles);
     Intersection intersection;
