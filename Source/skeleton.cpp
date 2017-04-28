@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 400;
-const int SCREEN_HEIGHT = 400;
+const int SCREEN_WIDTH = 700;
+const int SCREEN_HEIGHT = 700;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -147,7 +147,7 @@ void Draw()
             float srceen_width = SCREEN_WIDTH;
             float screen_height = SCREEN_HEIGHT;
 
-            d = vec3((-0.5 + x * 1.0 / srceen_width), (-0.5 + y * 1.0 / screen_height), f);
+            d = vec3((-0.5 + 0.5 / srceen_width + x * 1.0 / srceen_width), (-0.5 + 0.5 / screen_height + y * 1.0 / screen_height), f);
             d = R * d;
 
             if (closest_intersection(camera_pos, d, triangles, intersection))
