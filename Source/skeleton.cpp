@@ -17,8 +17,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 200;
-const int SCREEN_HEIGHT = 200;
+const int SCREEN_WIDTH = 600;
+const int SCREEN_HEIGHT = 600;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -137,40 +137,39 @@ void Draw()
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
     static vec3 original_img[SCREEN_WIDTH][SCREEN_HEIGHT];
     static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2];
+    int height = 0;
 
-    for (int i = 0; i < SCREEN_HEIGHT; i++)
+    for (int i = 0; i < SCREEN_HEIGHT; i = i + 2)
     {
-        for (int j = 0; j < SCREEN_WIDTH; j++)
+        int width = 0;
+        for (int j = 0; j < SCREEN_WIDTH; j = j + 2)
         {
             float x = j;
             float y = i;
             float srceen_width = SCREEN_WIDTH;
             float screen_height = SCREEN_HEIGHT;
 
-            d = vec3((-0.5 + 0.5 / srceen_width + x * 1.0 / srceen_width), (-0.5 + 0.5 / screen_height + y * 1.0 / screen_height), f);
-            d = R * d;
-
-            if (closest_intersection(camera_pos, d, triangles, intersection))
+            for (int a = 0; a < 2; a++)
             {
-                // intersection_pos = camera_pos + intersection.distance * d;
-                light_area = direct_light(intersection);
-                light_area = 0.5f * (indirect_light + light_area);
-                pixel_colour = light_area * triangles[intersection.triangle_index].color;
-                original_img[j][i] = pixel_colour;
-                // PutPixelSDL( screen, j, i, pixel_colour);
-            }
-            else
-                original_img[j][i] = black;
-            // PutPixelSDL( screen, j, i, black);
-        }
-    }
+                for (int b = 0; b < 2; b++)
+                {
+                    d = vec3((-0.5 + 0.5 / srceen_width + (x + b) * 1.0 / srceen_width), (-0.5 + 0.5 / screen_height + (y + a) * 1.0 / screen_height), f);
+                    d = R * d;
 
-    int height = 0;
-    for (int i = 0; i < SCREEN_HEIGHT; i = i + 2)
-    {
-        int width = 0;
-        for (int j = 0; j < SCREEN_WIDTH; j = j + 2)
-        {
+                    if (closest_intersection(camera_pos, d, triangles, intersection))
+                    {
+                        // intersection_pos = camera_pos + intersection.distance * d;
+                        light_area = direct_light(intersection);
+                        light_area = 0.5f * (indirect_light + light_area);
+                        pixel_colour = light_area * triangles[intersection.triangle_index].color;
+                        original_img[j + b][i + a] = pixel_colour;
+                        // PutPixelSDL( screen, j, i, pixel_colour);
+                    }
+                    else
+                        original_img[j + b][i + a] = black;
+                    // PutPixelSDL( screen, j, i, black);
+                }
+            }
             anti_aliasing[width][height] = (original_img[j][i] + original_img[j + 1][i] + original_img[j][i + 1] + original_img[j + 1][i + 1]) / vec3(4.0f, 4.0f, 4.0f);
             // printf("%d\n", width);
             PutPixelSDL(screen, width, height, anti_aliasing[width][height]);
@@ -178,6 +177,23 @@ void Draw()
         }
         height++;
     }
+
+    // int height = 0;
+    // vec3 focal_point;
+    // for (int i = 0; i < SCREEN_HEIGHT; i = i + 2)
+    // {
+    //     int width = 0;
+    //     for (int j = 0; j < SCREEN_WIDTH; j = j + 2)
+    //     {
+    //         focal_point = vec3((-0.5  + (j + 1) * 1.0 / SCREEN_WIDTH), (-0.5 + (i + 1) * 1.0 / SCREEN_HEIGHT), -0.5);
+    //         // for
+    //         anti_aliasing[width][height] = (original_img[j][i] + original_img[j + 1][i] + original_img[j][i + 1] + original_img[j + 1][i + 1]) / vec3(4.0f, 4.0f, 4.0f);
+    //         // printf("%d\n", width);
+    //         PutPixelSDL(screen, width, height, anti_aliasing[width][height]);
+    //         width++;
+    //     }
+    //     height++;
+    // }
 
     if (SDL_MUSTLOCK(screen))
         SDL_UnlockSurface(screen);
