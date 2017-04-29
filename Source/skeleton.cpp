@@ -135,7 +135,7 @@ void Draw()
     Intersection intersection;
     vec3 d, light_area, intersection_pos, sum_colour, pixel_colour;
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
-    static vec3 map[SCREEN_WIDTH][SCREEN_HEIGHT];
+    static vec3 original_img[SCREEN_WIDTH][SCREEN_HEIGHT];
     static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2];
 
     for (int i = 0; i < SCREEN_HEIGHT; i++)
@@ -156,11 +156,11 @@ void Draw()
                 light_area = direct_light(intersection);
                 light_area = 0.5f * (indirect_light + light_area);
                 pixel_colour = light_area * triangles[intersection.triangle_index].color;
-                map[j][i] = pixel_colour;
+                original_img[j][i] = pixel_colour;
                 // PutPixelSDL( screen, j, i, pixel_colour);
             }
             else
-                map[j][i] = black;
+                original_img[j][i] = black;
             // PutPixelSDL( screen, j, i, black);
         }
     }
@@ -171,7 +171,7 @@ void Draw()
         int width = 0;
         for (int j = 0; j < SCREEN_WIDTH; j = j + 2)
         {
-            anti_aliasing[width][height] = (map[j][i] + map[j + 1][i] + map[j][i + 1] + map[j + 1][i + 1]) / vec3(4.0f, 4.0f, 4.0f);
+            anti_aliasing[width][height] = (original_img[j][i] + original_img[j + 1][i] + original_img[j][i + 1] + original_img[j + 1][i + 1]) / vec3(4.0f, 4.0f, 4.0f);
             // printf("%d\n", width);
             PutPixelSDL(screen, width, height, anti_aliasing[width][height]);
             width++;
