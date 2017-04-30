@@ -31,12 +31,10 @@ float zz = 3.0;
 float yaw = 0.0f * 3.1415926 / 180;
 vec3 camera_pos(0, 0, -zz);
 vec3 light_pos(0, -0.5, -0.7);
+float light_radi = 0.3f;
 vec3 light_colour = 14.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
-
 static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2][4];
-
-
 std::vector<Triangle> triangles;
 
 struct Intersection
@@ -55,9 +53,9 @@ std::vector<Intersection> shadowIntersection;
 void Update();
 void Draw();
 vec3 intersection_point(Triangle triangle, vec3 d, vec3 camera_pos);
-bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int area_x, int area_y);
-vec3 direct_light(const Intersection& intersection_point, int area_x, int area_y);
-bool check_intersection(vec3 start, vec3 dir, Triangle triangle, vec3& result);
+bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int light);
+vec3 direct_light(const Intersection& intersection_point);
+// bool check_intersection(vec3 start, vec3 dir, Triangle triangle, vec3& result);
 void* subimg_thread(void *arg);
 
 
@@ -141,7 +139,6 @@ void Update()
 
 void Draw()
 {
-
     SDL_FillRect(screen, 0, 0);
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
@@ -173,7 +170,7 @@ void Draw()
 }
 
 
-void*  subimg_thread(void *arg)
+void *subimg_thread(void *arg)
 {
     int area = *(int*)arg;
 
@@ -187,28 +184,28 @@ void*  subimg_thread(void *arg)
     float screen_height = SCREEN_HEIGHT;
 
     vec3 original_img[10][10];
-    int X_value, Y_value;
+    int x_value, y_value;
     // int area_x, area_y;
     switch (area)
     {
     case 0:
-        X_value = 0;
-        Y_value = 0;
+        x_value = 0;
+        y_value = 0;
         break;
 
     case 1:
-        X_value = SCREEN_WIDTH / 2;
-        Y_value = 0;
+        x_value = SCREEN_WIDTH / 2;
+        y_value = 0;
         break;
 
     case 2:
-        X_value = 0;
-        Y_value = SCREEN_HEIGHT / 2;
+        x_value = 0;
+        y_value = SCREEN_HEIGHT / 2;
         break;
 
     case 3:
-        X_value = SCREEN_WIDTH / 2;
-        Y_value = SCREEN_HEIGHT / 2;
+        x_value = SCREEN_WIDTH / 2;
+        y_value = SCREEN_HEIGHT / 2;
         break;
 
     default:
@@ -220,28 +217,28 @@ void*  subimg_thread(void *arg)
     {
         for (int j = 0; j < SCREEN_WIDTH / 2; j++)
         {
-            x = j + X_value;
-            y = i + Y_value;
+            x = j + x_value;
+            y = i + y_value;
 
             focal_x = (-0.5 + 0.5 / srceen_width + x * 1.0 / srceen_width) * (focal - camera_pos[2]) / f;
             focal_y = (-0.5 + 0.5 / screen_height + y * 1.0 / screen_height) * (focal - camera_pos[2]) / f;
             height = 0;
 
-            for (int a = -8; a < 9; a = a + 8)
+            for (int a = -5; a < 6; a = a + 5)
             {
                 int width = 0;
-                for (int b = -8; b < 9; b = b + 8)
+                for (int b = -5; b < 6; b = b + 5)
                 {
-                    float x_ = b - b / 4 + b / 4 * (rand() / float(RAND_MAX));
-                    float y_ = a - a / 4 + a / 4 * (rand() / float(RAND_MAX));
+                    float x_ = b - b / 2 + b / 2 * (rand() / float(RAND_MAX));
+                    float y_ = a - a / 2 + a / 2 * (rand() / float(RAND_MAX));
                     sub_pixel = vec3 ((-0.5 + 0.5 / srceen_width + (x + x_) * 1.0 / srceen_width), (-0.5 + 0.5 / screen_height + (y + y_) * 1.0 / screen_height), -2.0f);
                     d = vec3(focal_x - sub_pixel[0], focal_y - sub_pixel[1], focal - sub_pixel[2]);
                     d = R * d;
 
-                    if (closest_intersection(sub_pixel, d, triangles, intersection, -1, -1))
+                    if (closest_intersection(sub_pixel, d, triangles, intersection, 0))
                     {
                         // intersection_pos = camera_pos + intersection.distance * d;
-                        light_area = direct_light(intersection, -1, -1);
+                        light_area = direct_light(intersection);
                         light_area = 0.5f * (indirect_light + light_area);
                         pixel_colour = light_area * triangles[intersection.triangle_index].color;
                         original_img[width][height] = pixel_colour;
@@ -257,18 +254,31 @@ void*  subimg_thread(void *arg)
             }
             anti_aliasing[j][i][area] = anti_aliasing[j][i][area] / vec3(9.0f, 9.0f, 9.0f);
             PutPixelSDL(screen, x, y, anti_aliasing[j][i][area]);
+            anti_aliasing[j][i][area] = black;
         }
     }
     return NULL;
 }
 
-bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int area_x, int area_y)
+bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int light)
 {
     bool flag = false;
     float min = 0.0;
-    int triangle_index;
-    vec3 v0, v1, v2, e1, e2, b, x, intersection_pos;
+    int triangle_index, ignore = 1;
+    vec3 v0, v1, v2, e1, e2, b, x, intersection_pos, e1_, e2_, b_;
     mat3 A;
+    vec3 front_triangle_v0, front_triangle_v1, front_triangle_v2;
+    front_triangle_v0 = vec3(-0.76f, -0.87f, -1.0f);
+    front_triangle_v1 = vec3(-0.76f, 1.0f, -1.0f);
+    front_triangle_v2 = vec3(1.31f, 1.0f, -1.0f);
+
+    e1_ = front_triangle_v1 - front_triangle_v0;
+    e2_ = front_triangle_v2 - front_triangle_v0;
+    b_ = start - front_triangle_v0;
+    A = mat3(-dir, e1_, e2_);
+    x = glm::inverse(A) * b_;
+    if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0)
+        ignore = 0;
 
     for (size_t i = 0; i < triangles.size(); i++)
     {
@@ -277,16 +287,14 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         v1 = triangles[i].v1;
         v2 = triangles[i].v2;
 
-        if (area_x != -1 && area_y != -1)
-        {
-            if ((-1 + area_x <= v0[0] && v0[0] <= -1 + (area_x + 1) && -1 + area_y <= v0[1] && v0[1] <= -1 + (area_y + 1))
-                    || (-1 + area_x <= v1[0] && v1[0] <= -1 + (area_x + 1) && -1 + area_y <= v1[1] && v1[1] <= -1 + (area_y + 1))
-                    || (-1 + area_x <= v2[0] && v2[0] <= -1 + (area_x + 1) && -1 + area_y <= v2[1] && v2[1] <= -1 + (area_y + 1)))
-            {
-                e1 = v1 - v0;
-                e2 = v2 - v0;
-                b = start - v0;
+        e1 = v1 - v0;
+        e2 = v2 - v0;
+        b = start - v0;
 
+        if (ignore == 1 && light == 0)
+        {
+            if (i <= 10)
+            {
                 A = mat3(-dir, e1, e2);
                 x = glm::inverse(A) * b;
                 if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0.03f)
@@ -305,12 +313,8 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
                 }
             }
         }
-        else
+        else if (ignore == 0 || light == 1)
         {
-            e1 = v1 - v0;
-            e2 = v2 - v0;
-            b = start - v0;
-
             A = mat3(-dir, e1, e2);
             x = glm::inverse(A) * b;
             if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0.03f)
@@ -341,7 +345,7 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         return false;
 }
 
-vec3 direct_light(const Intersection &point, int area_x, int area_y)
+vec3 direct_light(const Intersection &point)
 {
     vec3 surface_light, dis, light_area;
     float r;
@@ -356,7 +360,7 @@ vec3 direct_light(const Intersection &point, int area_x, int area_y)
     else
         light_area = vec3(0.0, 0.0, 0.0);
 
-    if (closest_intersection(point.position, surface_light, triangles, inter, area_x, area_y))
+    if (closest_intersection(point.position, surface_light, triangles, inter, 1))
     {
         dis = inter.position - point.position;
         if (r > glm::length(dis) && result > 0.0 && point.triangle_index != inter.triangle_index)
