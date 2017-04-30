@@ -10,6 +10,10 @@ No recorded activity before January 30, 2017
 #include "TestModel.h"
 #include "limits.h"
 
+#include <pthread.h>
+#include <stdlib.h>
+#include <stdio.h>
+
 using namespace std;
 using glm::vec3;
 using glm::mat3;
@@ -17,8 +21,8 @@ using glm::mat3;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 
-const int SCREEN_WIDTH = 400;
-const int SCREEN_HEIGHT = 400;
+const int SCREEN_WIDTH = 200;
+const int SCREEN_HEIGHT = 200;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -29,6 +33,10 @@ vec3 camera_pos(0, 0, -zz);
 vec3 light_pos(0, -0.5, -0.7);
 vec3 light_colour = 14.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
+
+static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2][4];
+
+
 std::vector<Triangle> triangles;
 
 struct Intersection
@@ -50,6 +58,8 @@ vec3 intersection_point(Triangle triangle, vec3 d, vec3 camera_pos);
 bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int area_x, int area_y);
 vec3 direct_light(const Intersection& intersection_point, int area_x, int area_y);
 bool check_intersection(vec3 start, vec3 dir, Triangle triangle, vec3& result);
+void* subimg_thread(void *arg);
+
 
 
 int main(int argc, char* argv[])
@@ -131,57 +141,96 @@ void Update()
 
 void Draw()
 {
-    vec3 black(0.0, 0.0, 0.0);
+
     SDL_FillRect(screen, 0, 0);
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
 
     LoadTestModel(triangles);
+
+    //static vec3 anti_aliasing[SCREEN_WIDTH][SCREEN_HEIGHT];
+
+    pthread_t tid[4];
+    int a = 0;
+    int b = 1;
+    int c = 2;
+    int d = 3;
+
+    pthread_create(&tid[a], NULL, subimg_thread, &a);
+    pthread_create(&tid[b], NULL, subimg_thread, &b);
+    pthread_create(&tid[c], NULL, subimg_thread, &c);
+    pthread_create(&tid[d], NULL, subimg_thread, &d);
+
+    pthread_join(tid[0], NULL);
+    pthread_join(tid[1], NULL);
+    pthread_join(tid[2], NULL);
+    pthread_join(tid[3], NULL);
+
+    if (SDL_MUSTLOCK(screen))
+        SDL_UnlockSurface(screen);
+
+    SDL_UpdateRect(screen, 0, 0, 0, 0);
+}
+
+
+void*  subimg_thread(void *arg)
+{
+    int area = *(int*)arg;
+
+    vec3 black(0.0, 0.0, 0.0);
     Intersection intersection;
     vec3 d, light_area, intersection_pos, sum_colour, pixel_colour, sub_pixel;
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
-    static vec3 original_img[10][10];
-    static vec3 anti_aliasing[SCREEN_WIDTH][SCREEN_HEIGHT];
+    float x, y, focal_x, focal_y;
+    int height = 0;
+    float srceen_width = SCREEN_WIDTH;
+    float screen_height = SCREEN_HEIGHT;
 
-
-    for (int i = 0; i < SCREEN_HEIGHT; i++)
+    vec3 original_img[10][10];
+    int X_value, Y_value;
+    // int area_x, area_y;
+    switch (area)
     {
-        for (int j = 0; j < SCREEN_WIDTH; j++)
+    case 0:
+        X_value = 0;
+        Y_value = 0;
+        break;
+
+    case 1:
+        X_value = SCREEN_WIDTH / 2;
+        Y_value = 0;
+        break;
+
+    case 2:
+        X_value = 0;
+        Y_value = SCREEN_HEIGHT / 2;
+        break;
+
+    case 3:
+        X_value = SCREEN_WIDTH / 2;
+        Y_value = SCREEN_HEIGHT / 2;
+        break;
+
+    default:
+        printf("Wrong Area!\n");
+        break;
+    }
+
+    for (int i = 0; i < SCREEN_HEIGHT / 2; i++)
+    {
+        for (int j = 0; j < SCREEN_WIDTH / 2; j++)
         {
-            float x = j;
-            float y = i;
-            float srceen_width = SCREEN_WIDTH;
-            float screen_height = SCREEN_HEIGHT;
-            float focal_x = (-0.5 + 0.5 / srceen_width + x * 1.0 / srceen_width) * (focal - camera_pos[2]) / f;
-            float focal_y = (-0.5 + 0.5 / screen_height + y * 1.0 / screen_height) * (focal - camera_pos[2]) / f;
-            int height = 0;
-            int area_x, area_y;
+            x = j + X_value;
+            y = i + Y_value;
 
-            if (j <= SCREEN_WIDTH / 2 && i <= SCREEN_HEIGHT / 2)
-            {
-                area_x = 0;
-                area_y = 0;
-            }
-            else if (j > SCREEN_WIDTH / 2 && i <= SCREEN_HEIGHT / 2)
-            {
-                area_x = 1;
-                area_y = 0;
-            }
-            else if (j <= SCREEN_WIDTH / 2 && i > SCREEN_HEIGHT / 2)
-            {
-                area_x = 0;
-                area_y = 1;
-            }
-            else if (j > SCREEN_WIDTH / 2 && i > SCREEN_HEIGHT / 2)
-            {
-                area_x = 1;
-                area_y = 1;
-            }
+            focal_x = (-0.5 + 0.5 / srceen_width + x * 1.0 / srceen_width) * (focal - camera_pos[2]) / f;
+            focal_y = (-0.5 + 0.5 / screen_height + y * 1.0 / screen_height) * (focal - camera_pos[2]) / f;
+            height = 0;
 
-            for (int a = -8; a < 9; a = a + 4)
+            for (int a = -8; a < 9; a = a + 8)
             {
                 int width = 0;
-                for (int b = -8; b < 9; b = b + 4)
+                for (int b = -8; b < 9; b = b + 8)
                 {
                     float x_ = b - b / 4 + b / 4 * (rand() / float(RAND_MAX));
                     float y_ = a - a / 4 + a / 4 * (rand() / float(RAND_MAX));
@@ -189,10 +238,10 @@ void Draw()
                     d = vec3(focal_x - sub_pixel[0], focal_y - sub_pixel[1], focal - sub_pixel[2]);
                     d = R * d;
 
-                    if (closest_intersection(sub_pixel, d, triangles, intersection, area_x, area_y))
+                    if (closest_intersection(sub_pixel, d, triangles, intersection, -1, -1))
                     {
                         // intersection_pos = camera_pos + intersection.distance * d;
-                        light_area = direct_light(intersection, area_x, area_y);
+                        light_area = direct_light(intersection, -1, -1);
                         light_area = 0.5f * (indirect_light + light_area);
                         pixel_colour = light_area * triangles[intersection.triangle_index].color;
                         original_img[width][height] = pixel_colour;
@@ -200,40 +249,17 @@ void Draw()
                     }
                     else
                         original_img[width][height] = black;
-                    // PutPixelSDL( screen, j, i, black);
-                    anti_aliasing[j][i] = anti_aliasing[j][i] + original_img[width][height];
+
+                    anti_aliasing[j][i][area] = anti_aliasing[j][i][area] + original_img[width][height];
                     width++;
                 }
                 height++;
             }
-            anti_aliasing[j][i] = anti_aliasing[j][i] / vec3(25.0f, 25.0f, 25.0f);
-            // printf("%d\n", j);
-            PutPixelSDL(screen, j, i, anti_aliasing[j][i]);
-
+            anti_aliasing[j][i][area] = anti_aliasing[j][i][area] / vec3(9.0f, 9.0f, 9.0f);
+            PutPixelSDL(screen, x, y, anti_aliasing[j][i][area]);
         }
     }
-
-    // int height = 0;
-    // vec3 focal_point;
-    // for (int i = 0; i < SCREEN_HEIGHT; i = i + 2)
-    // {
-    //     int width = 0;
-    //     for (int j = 0; j < SCREEN_WIDTH; j = j + 2)
-    //     {
-    //         focal_point = vec3((-0.5  + (j + 1) * 1.0 / SCREEN_WIDTH), (-0.5 + (i + 1) * 1.0 / SCREEN_HEIGHT), -0.5);
-    //         // for
-    //         anti_aliasing[width][height] = (original_img[j][i] + original_img[j + 1][i] + original_img[j][i + 1] + original_img[j + 1][i + 1]) / vec3(4.0f, 4.0f, 4.0f);
-    //         // printf("%d\n", width);
-    //         PutPixelSDL(screen, width, height, anti_aliasing[width][height]);
-    //         width++;
-    //     }
-    //     height++;
-    // }
-
-    if (SDL_MUSTLOCK(screen))
-        SDL_UnlockSurface(screen);
-
-    SDL_UpdateRect(screen, 0, 0, 0, 0);
+    return NULL;
 }
 
 bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int area_x, int area_y)
