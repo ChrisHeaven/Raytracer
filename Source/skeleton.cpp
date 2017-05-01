@@ -35,13 +35,14 @@ vec3 light_colour = 14.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
 static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2][4];
 std::vector<Triangle> triangles;
+static float map[101][101][101];
 
 struct Intersection
 {
     vec3 position;
     float distance;
     int triangle_index;
-    // int anti_aliasing[6];
+    vec3 colour;
 };
 std::vector<Intersection> shadowIntersection;
 
@@ -52,8 +53,11 @@ std::vector<Intersection> shadowIntersection;
 void Update();
 void Draw();
 bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int light);
+bool shadow_intersection(vec3 start, vec3 dir, int triangle_index, Intersection& cloestIntersection);
+bool mirror_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection);
 vec3 direct_light(const Intersection& intersection_point);
 void* img_thread(void *arg);
+int round_double(float number);
 
 
 
@@ -61,6 +65,7 @@ int main(int argc, char* argv[])
 {
     screen = InitializeSDL(SCREEN_WIDTH, SCREEN_HEIGHT);
     t = SDL_GetTicks(); // Set start value for timer.
+    memset(map, -1.0f, sizeof(map));
 
     while (NoQuitMessageSDL())
     {
@@ -165,7 +170,7 @@ void *img_thread(void *arg)
     int area = *(int*)arg;
 
     vec3 black(0.0f, 0.0f, 0.0f);
-    Intersection intersection;
+    Intersection intersection, mirror_intersec;
     vec3 d, light_area, intersection_pos, sum_colour, pixel_colour, sub_pixel;
     mat3 R(cos(yaw), 0, sin(yaw), 0, 1, 0, -sin(yaw), 0, cos(yaw));
     float x, y, focal_x, focal_y;
@@ -229,19 +234,28 @@ void *img_thread(void *arg)
                         // intersection_pos = camera_pos + intersection.distance * d;
                         light_area = direct_light(intersection);
                         light_area = 0.5f * (indirect_light + light_area);
-                        pixel_colour = light_area * triangles[intersection.triangle_index].color;
+                        // pixel_colour = light_area * triangles[intersection.triangle_index].color;
+                        pixel_colour = light_area * intersection.colour;
+
                         original_img[width][height] = pixel_colour;
                     }
                     else
                         original_img[width][height] = black;
 
                     anti_aliasing[j][i][area] = anti_aliasing[j][i][area] + original_img[width][height];
+                    // if (area >= 2)
+                    // {
+                    //     mirror_intersection(sub_pixel, d, triangles, mirror_intersec);
+
+                    // }
                     width++;
                 }
                 height++;
             }
 
             anti_aliasing[j][i][area] = anti_aliasing[j][i][area] / vec3(9.0f, 9.0f, 9.0f);
+
+
             PutPixelSDL(screen, x, y, anti_aliasing[j][i][area]);
             anti_aliasing[j][i][area] = black;
         }
@@ -251,15 +265,18 @@ void *img_thread(void *arg)
 
 bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection, int light)
 {
+    // printf("aaa\n");
     bool flag = false;
     float min = 0.0;
     int triangle_index, ignore = 1;
     vec3 v0, v1, v2, e1, e2, b, x, intersection_pos, e1_, e2_, b_;
+    vec3 reflect_position, reflect_dir;
     mat3 A;
     vec3 front_triangle_v0, front_triangle_v1, front_triangle_v2;
     front_triangle_v0 = vec3(-0.76f, -0.87f, -1.0f);
     front_triangle_v1 = vec3(-0.76f, 1.0f, -1.0f);
     front_triangle_v2 = vec3(1.31f, 1.0f, -1.0f);
+    Intersection reflect_intersec;
 
     e1_ = front_triangle_v1 - front_triangle_v0;
     e2_ = front_triangle_v2 - front_triangle_v0;
@@ -281,7 +298,7 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
 
         if (ignore == 1 && light == 0)
         {
-            if (i <= 10)
+            if (i <= 9)
             {
                 A = mat3(-dir, e1, e2);
                 x = glm::inverse(A) * b;
@@ -297,6 +314,22 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
                     {
                         min = x[0];
                         triangle_index = i;
+                    }
+                    // printf("ssss\n");
+                    if (i == 2 || i == 3)
+                    {
+                        // printf("aaaa\n");
+                        reflect_position = start + min * dir;
+                        reflect_dir = vec3(-dir[0], dir[1], dir[2]);
+                        // printf("aaaaa\n");
+                        if (mirror_intersection(reflect_position, reflect_dir, triangles, reflect_intersec))
+                        {
+                            // printf("bbbbb\n");
+                            triangle_index = reflect_intersec.triangle_index;
+                            // cloestIntersection.position = reflect_intersec.position;
+                            cloestIntersection.colour = reflect_intersec.colour;
+                            min = x[0];
+                        }
                     }
                 }
             }
@@ -318,6 +351,21 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
                     min = x[0];
                     triangle_index = i;
                 }
+
+                if (i == 2 || i == 3)
+                {
+                    // printf("aaaa\n");
+                    reflect_position = start + min * dir;
+                    reflect_dir = vec3(-dir[0], dir[1], dir[2]);
+                    if (mirror_intersection(reflect_position, reflect_dir, triangles, reflect_intersec))
+                    {
+                        // printf("bbbbb\n");
+                        triangle_index = reflect_intersec.triangle_index;
+                        // cloestIntersection.position = reflect_intersec.position;
+                        cloestIntersection.colour = reflect_intersec.colour;
+                        min = x[0];
+                    }
+                }
             }
         }
     }
@@ -327,6 +375,8 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         cloestIntersection.position = start + min * dir;
         cloestIntersection.distance = min;
         cloestIntersection.triangle_index = triangle_index;
+        if (triangle_index != 2 || triangle_index != 3)
+            cloestIntersection.colour = triangles[triangle_index].color;
         return true;
     }
     else
@@ -335,9 +385,9 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
 
 vec3 direct_light(const Intersection &point)
 {
-    vec3 surface_light, dis, light_area;
+    vec3 surface_light, dis, light_area, shadow_colour;
     float r;
-    Intersection inter;
+    Intersection inter, shadow_inter;
 
     surface_light = light_pos - point.position;
     r = glm::length(surface_light);
@@ -352,8 +402,131 @@ vec3 direct_light(const Intersection &point)
     {
         dis = inter.position - point.position;
         if (r > glm::length(dis) && result > 0.0 && point.triangle_index != inter.triangle_index)
+        {
             light_area = vec3(0.0, 0.0, 0.0);
+            for (int i = 0; i < 10; i++)
+            {
+                vec3 direction = surface_light + vec3(0.03f * (((rand() / float(RAND_MAX)) - 0.5f) * 2.0f), 0.03f * (((rand() / float(RAND_MAX)) - 0.5f) * 2.0f), 0.03f * (((rand() / float(RAND_MAX)) - 0.5f) * 2.0f));
+                if (shadow_intersection(point.position, direction, inter.triangle_index, shadow_inter))
+                    shadow_colour = vec3(0.0, 0.0, 0.0);
+                else
+                    shadow_colour = triangles[point.triangle_index].color;
+                // shadow_colour = vec3(1.0f, 1.0f, 1.0f);
+
+                light_area = light_area + shadow_colour;
+            }
+            light_area = light_area / vec3(10.0f, 10.0f, 10.0f);
+            // printf("Assign value to map\n");
+            map[round_double((point.position[0] + 1.0f) * 100.0f / 2.0f)]
+            [round_double((point.position[1] + 1.0f) * 100.0f / 2.0f)]
+            [round_double((point.position[2] + 1.0f) * 100.0f / 2.0f)] = light_area[0];
+        }
     }
 
     return light_area;
+}
+
+int round_double(float number)
+{
+    return (number > 0.0) ? floor(number + 0.5) : ceil(number - 0.5);
+}
+
+bool shadow_intersection(vec3 start, vec3 dir, int triangle_id, Intersection& cloestIntersection)
+{
+    bool flag = false;
+    vec3 v0, v1, v2, e1, e2, b, x, intersection_pos, e1_, e2_, b_;
+    mat3 A;
+
+    for (int i = triangle_id - 2; i < triangle_id + 3; i++)
+    {
+        v0 = triangles[i].v0;
+        v1 = triangles[i].v1;
+        v2 = triangles[i].v2;
+
+        e1 = v1 - v0;
+        e2 = v2 - v0;
+        b = start - v0;
+
+        A = mat3(-dir, e1, e2);
+        x = glm::inverse(A) * b;
+        if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0)
+        {
+            flag = true;
+            break;
+        }
+    }
+
+    if (flag)
+        return true;
+    else
+        return false;
+}
+
+bool mirror_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles, Intersection& cloestIntersection)
+{
+    // printf("hhhh\n");
+    bool flag = false;
+    float min = 0.0;
+    int triangle_index;
+    vec3 v0, v1, v2, e1, e2, b, x, intersection_pos, e1_, e2_, b_, shadow_colour;
+    mat3 A;
+
+    for (size_t i = 0; i < triangles.size(); i++)
+    {
+        v0 = triangles[i].v0;
+        v1 = triangles[i].v1;
+        v2 = triangles[i].v2;
+
+        e1 = v1 - v0;
+        e2 = v2 - v0;
+        b = start - v0;
+
+        A = mat3(-dir, e1, e2);
+        x = glm::inverse(A) * b;
+        if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0.03f)
+        {
+            if (!flag)
+            {
+                min = x[0];
+                triangle_index = i;
+            }
+            flag = true;
+            if (min > x[0])
+            {
+                min = x[0];
+                triangle_index = i;
+            }
+        }
+    }
+
+    cloestIntersection.position = start + min * dir;
+
+    if (map[round_double((cloestIntersection.position[0] + 1.0f) * 100.0f / 2.0f)]
+            [round_double((cloestIntersection.position[1] + 1.0f) * 100.0f / 2.0f)]
+            [round_double((cloestIntersection.position[2] + 1.0f) * 100.0f / 2.0f)] >= 0.0f)
+    {
+        // printf("Getting sub_colour from map\n");
+        float sub_colour = map[round_double((cloestIntersection.position[0] + 1.0f) * 100.0f / 2.0f)]
+                           [round_double((cloestIntersection.position[1] + 1.0f) * 100.0f / 2.0f)]
+                           [round_double((cloestIntersection.position[2] + 1.0f) * 100.0f / 2.0f)];
+        // printf("sub_colour is %f\n", sub_colour);
+        shadow_colour = vec3(sub_colour, sub_colour, sub_colour);
+        // printf("shadow_colour assigned\n");
+        if (flag)cloestIntersection.colour = triangles[triangle_index].color * shadow_colour;
+        // printf("I am here\n");
+    }
+
+    if (flag)
+    {
+        cloestIntersection.position = start + min * dir;
+        cloestIntersection.distance = min;
+        cloestIntersection.triangle_index = triangle_index;
+        if (map[round_double((cloestIntersection.position[0] + 1.0f) * 100.0f / 2.0f)]
+                [round_double((cloestIntersection.position[1] + 1.0f) * 100.0f / 2.0f)]
+                [round_double((cloestIntersection.position[2] + 1.0f) * 100.0f / 2.0f)] == -1.0f)
+            cloestIntersection.colour = triangles[triangle_index].color;
+        return true;
+    }
+    else
+        return false;
 }
