@@ -35,7 +35,7 @@ vec3 light_colour = 14.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
 static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2][4];
 std::vector<Triangle> triangles;
-static vec3 map[101][101][101];
+static vec3 map[SCREEN_HEIGHT + 1][SCREEN_HEIGHT + 1][SCREEN_HEIGHT + 1];
 
 struct Intersection
 {
@@ -70,11 +70,11 @@ int main(int argc, char* argv[])
 
     while (NoQuitMessageSDL())
     {
-        for (int i = 0; i < 101; i++)
+        for (int i = 0; i < SCREEN_HEIGHT + 1; i++)
         {
-            for (int j = 0; j < 101; j++)
+            for (int j = 0; j < SCREEN_HEIGHT + 1; j++)
             {
-                for (int k = 0; k < 101; k++)
+                for (int k = 0; k < SCREEN_HEIGHT + 1; k++)
                 {
                     map[i][j][k] = vec3(-1.0f, -1.0f, -1.0f);
                 }
@@ -437,7 +437,7 @@ vec3 direct_light(const Intersection &point)
 int round_double(float number)
 {
     // printf("original %f\n", number);
-    number = ((number  + 1.0f) * 100.0f / 2.0f);
+    number = ((number  + 1.0f) * float(SCREEN_HEIGHT) / 2.0f);
     number = floor(number + 0.5);
     // printf("final %f\n", number);
     return number;
