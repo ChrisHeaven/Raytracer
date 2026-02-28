@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "ec1ea36d4445",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/skeleton.cpp"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ec/1ea36d4445/0/metadata.json",
+      "transcript": "/ec/1ea36d4445/0/full.jsonl",
+      "context": "/ec/1ea36d4445/0/context.md",
+      "content_hash": "/ec/1ea36d4445/0/content_hash.txt",
+      "prompt": "/ec/1ea36d4445/0/prompt.txt"
+    }
+  ]
+}

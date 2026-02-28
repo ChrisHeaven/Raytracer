@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "ec1ea36d4445",
+  "session_id": "4499bc3f-eff8-4450-80fa-73c3632bfc4c",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-28T07:41:53.83831Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/skeleton.cpp"
+  ],
+  "agent": "Cursor",
+  "turn_id": "1847cd77fafb",
+  "initial_attribution": {
+    "calculated_at": "2026-02-28T07:41:53.823744Z",
+    "agent_lines": 51,
+    "human_added": 48,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 99,
+    "agent_percentage": 51.515151515151516
+  }
+}
