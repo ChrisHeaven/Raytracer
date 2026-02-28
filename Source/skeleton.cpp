@@ -56,6 +56,38 @@ vec3 direct_light(const Intersection& intersection_point);
 void* img_thread(void *arg);
 int round_double(float number);
 
+inline bool RayTriangleIntersection(const vec3& orig,
+                                    const vec3& dir,
+                                    const vec3& v0,
+                                    const vec3& v1,
+                                    const vec3& v2,
+                                    float& t,
+                                    float& u,
+                                    float& v)
+{
+    const float EPSILON = 1e-6f;
+    vec3 e1 = v1 - v0;
+    vec3 e2 = v2 - v0;
+    vec3 pvec = glm::cross(dir, e2);
+    float det = glm::dot(e1, pvec);
+    if (fabs(det) < EPSILON)
+        return false;
+
+    float invDet = 1.0f / det;
+    vec3 tvec = orig - v0;
+    u = glm::dot(tvec, pvec) * invDet;
+    if (u < 0.0f || u > 1.0f)
+        return false;
+
+    vec3 qvec = glm::cross(tvec, e1);
+    v = glm::dot(dir, qvec) * invDet;
+    if (v < 0.0f || u + v > 1.0f)
+        return false;
+
+    t = glm::dot(e2, qvec) * invDet;
+    return t > 0.0f;
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -321,12 +353,8 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
     front_triangle_v2 = vec3(1.31f, 1.0f, -1.0f);
     Intersection reflect_intersec;
 
-    e1_ = front_triangle_v1 - front_triangle_v0;
-    e2_ = front_triangle_v2 - front_triangle_v0;
-    b_ = start - front_triangle_v0;
-    A = mat3(-dir, e1_, e2_);
-    x = glm::inverse(A) * b_;
-    if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0)
+    float t_front, u_front, v_front;
+    if (RayTriangleIntersection(start, dir, front_triangle_v0, front_triangle_v1, front_triangle_v2, t_front, u_front, v_front))
         ignore = 0;
 
     for (size_t i = 0; i < triangles.size(); i++)
@@ -343,19 +371,18 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         {
             if (i <= 9)
             {
-                A = mat3(-dir, e1, e2);
-                x = glm::inverse(A) * b;
-                if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0.03f)
+                float t_hit, u_hit, v_hit;
+                if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.03f)
                 {
                     if (!flag)
                     {
-                        min = x[0];
+                        min = t_hit;
                         triangle_index = i;
                     }
                     flag = true;
-                    if (min > x[0])
+                    if (min > t_hit)
                     {
-                        min = x[0];
+                        min = t_hit;
                         triangle_index = i;
                     }
 
@@ -378,19 +405,18 @@ bool closest_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangle
         }
         else if (ignore == 0 || light == 1)
         {
-            A = mat3(-dir, e1, e2);
-            x = glm::inverse(A) * b;
-            if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0.03f)
+            float t_hit, u_hit, v_hit;
+            if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.03f)
             {
                 if (!flag)
                 {
-                    min = x[0];
+                    min = t_hit;
                     triangle_index = i;
                 }
                 flag = true;
-                if (min > x[0])
+                if (min > t_hit)
                 {
-                    min = x[0];
+                    min = t_hit;
                     triangle_index = i;
                 }
 
@@ -500,6 +526,7 @@ bool shadow_intersection(vec3 start, vec3 dir, int triangle_id, Intersection& cl
     bool flag = false;
     vec3 v0, v1, v2, e1, e2, b, x, intersection_pos, e1_, e2_, b_;
     mat3 A;
+    float t_hit, u_hit, v_hit;
 
     for (int i = triangle_id - 2; i < triangle_id + 3; i++)
     {
@@ -507,13 +534,7 @@ bool shadow_intersection(vec3 start, vec3 dir, int triangle_id, Intersection& cl
         v1 = triangles[i].v1;
         v2 = triangles[i].v2;
 
-        e1 = v1 - v0;
-        e2 = v2 - v0;
-        b = start - v0;
-
-        A = mat3(-dir, e1, e2);
-        x = glm::inverse(A) * b;
-        if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0)
+        if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.0f)
         {
             flag = true;
             break;
@@ -540,23 +561,18 @@ bool mirror_intersection(vec3 start, vec3 dir, const vector<Triangle>& triangles
         v1 = triangles[i].v1;
         v2 = triangles[i].v2;
 
-        e1 = v1 - v0;
-        e2 = v2 - v0;
-        b = start - v0;
-
-        A = mat3(-dir, e1, e2);
-        x = glm::inverse(A) * b;
-        if (x[1] >= 0 && x[2] >= 0 && (x[1] + x[2]) <= 1 && x[0] > 0.03f)
+        float t_hit, u_hit, v_hit;
+        if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.03f)
         {
             if (!flag)
             {
-                min = x[0];
+                min = t_hit;
                 triangle_index = i;
             }
             flag = true;
-            if (min > x[0])
+            if (min > t_hit)
             {
-                min = x[0];
+                min = t_hit;
                 triangle_index = i;
             }
         }
