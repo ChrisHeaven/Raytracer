@@ -4,12 +4,16 @@
 #include <deque>
 #include <cstdlib>
 #include <ctime>
+#include <cstring>
 
 #include <glm/glm.hpp>
 
 #include "SDLauxiliary.h"
 
 using glm::vec3;
+
+const vec3 kSnakeColor(0.0f, 1.0f, 0.0f);
+const vec3 kFoodColor (1.0f, 0.0f, 0.0f);
 
 // Grid configuration
 constexpr int kGridWidth  = 20;
@@ -48,16 +52,22 @@ void SpawnFood()
 
 void DrawCell(int gridX, int gridY, const vec3& color)
 {
-    const int baseX = gridX * kCellSize;
-    const int baseY = gridY * kCellSize;
+    SDL_Rect rect;
+    rect.x = gridX * kCellSize;
+    rect.y = gridY * kCellSize;
+    rect.w = kCellSize;
+    rect.h = kCellSize;
 
-    for (int dx = 0; dx < kCellSize; ++dx)
-    {
-        for (int dy = 0; dy < kCellSize; ++dy)
-        {
-            PutPixelSDL(screen, baseX + dx, baseY + dy, color);
-        }
-    }
+    const float rClamped = glm::clamp(color.r, 0.0f, 1.0f);
+    const float gClamped = glm::clamp(color.g, 0.0f, 1.0f);
+    const float bClamped = glm::clamp(color.b, 0.0f, 1.0f);
+
+    const Uint8 r = static_cast<Uint8>(rClamped * 255.0f);
+    const Uint8 g = static_cast<Uint8>(gClamped * 255.0f);
+    const Uint8 b = static_cast<Uint8>(bClamped * 255.0f);
+
+    const Uint32 mapped = SDL_MapRGB(screen->format, r, g, b);
+    SDL_FillRect(screen, &rect, mapped);
 }
 
 void UpdateSnake()
@@ -162,11 +172,11 @@ void Render()
     // Draw snake body (green)
     for (const Cell& segment : snake)
     {
-        DrawCell(segment.first, segment.second, vec3(0.0f, 1.0f, 0.0f));
+        DrawCell(segment.first, segment.second, kSnakeColor);
     }
 
     // Draw food (red)
-    DrawCell(food.first, food.second, vec3(1.0f, 0.0f, 0.0f));
+    DrawCell(food.first, food.second, kFoodColor);
 
     if (SDL_MUSTLOCK(screen))
     {
@@ -185,13 +195,7 @@ int main(int /*argc*/, char** /*argv*/)
     snake.clear();
 
     // Reset occupancy grid
-    for (int y = 0; y < kGridHeight; ++y)
-    {
-        for (int x = 0; x < kGridWidth; ++x)
-        {
-            occupied[y][x] = false;
-        }
-    }
+    std::memset(occupied, 0, sizeof(occupied));
 
     snake.push_back(Cell(kGridWidth / 2, kGridHeight / 2));
     occupied[snake.front().second][snake.front().first] = true;
