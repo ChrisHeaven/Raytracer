@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "fbd6f1285e6d",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/bubble_sort.cpp"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/d6f1285e6d/0/metadata.json",
+      "transcript": "/fb/d6f1285e6d/0/full.jsonl",
+      "context": "/fb/d6f1285e6d/0/context.md",
+      "content_hash": "/fb/d6f1285e6d/0/content_hash.txt",
+      "prompt": "/fb/d6f1285e6d/0/prompt.txt"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "fbd6f1285e6d",
+  "session_id": "35f72c06-b2fa-48f4-9259-5005cd8c1e52",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-02T05:03:21.03852Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/bubble_sort.cpp"
+  ],
+  "agent": "Cursor",
+  "turn_id": "96edeae8a6cd",
+  "initial_attribution": {
+    "calculated_at": "2026-03-02T05:03:21.026183Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 61,
+    "human_removed": 0,
+    "total_committed": 61,
+    "agent_percentage": 0
+  }
+}
