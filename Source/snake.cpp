@@ -12,8 +12,8 @@
 using glm::vec3;
 
 // Grid configuration
-constexpr int kGridWidth  = 25;
-constexpr int kGridHeight = 25;
+constexpr int kGridWidth  = 20;
+constexpr int kGridHeight = 20;
 constexpr int kCellSize   = 15;
 
 // Game state
@@ -24,13 +24,26 @@ using Cell = std::pair<int, int>;
 std::deque<Cell> snake;
 Cell food;
 
+// Occupancy grid to accelerate collision checks
+bool occupied[kGridHeight][kGridWidth];
+
 int directionX = 1;
 int directionY = 0;
 bool isAlive   = true;
 
 void SpawnFood()
 {
-    food = Cell(rand() % kGridWidth, rand() % kGridHeight);
+    int x, y;
+
+    // Ensure food never spawns on the snake body
+    do
+    {
+        x = rand() % kGridWidth;
+        y = rand() % kGridHeight;
+    }
+    while (occupied[y][x]);
+
+    food = Cell(x, y);
 }
 
 void DrawCell(int gridX, int gridY, const vec3& color)
@@ -49,13 +62,13 @@ void DrawCell(int gridX, int gridY, const vec3& color)
 
 void UpdateSnake()
 {
-    Cell head = snake.front();
-    head.first  += directionX;
-    head.second += directionY;
+    const Cell& head = snake.front();
+    const int newX   = head.first  + directionX;
+    const int newY   = head.second + directionY;
 
     const bool hitWall =
-        head.first < 0 || head.first >= kGridWidth ||
-        head.second < 0 || head.second >= kGridHeight;
+        newX < 0 || newX >= kGridWidth ||
+        newY < 0 || newY >= kGridHeight;
 
     if (hitWall)
     {
@@ -63,25 +76,31 @@ void UpdateSnake()
         return;
     }
 
-    // Self-collision
-    for (const Cell& segment : snake)
+    const bool willGrow = (newX == food.first && newY == food.second);
+
+    // If we're not growing, free the tail cell so moving into the old tail
+    // position is allowed in the same step.
+    if (!willGrow)
     {
-        if (segment == head)
-        {
-            isAlive = false;
-            return;
-        }
+        const Cell& tail = snake.back();
+        occupied[tail.second][tail.first] = false;
+        snake.pop_back();
     }
 
-    snake.push_front(head);
+    // Self-collision check using occupancy grid (O(1))
+    if (occupied[newY][newX])
+    {
+        isAlive = false;
+        return;
+    }
 
-    if (head == food)
+    const Cell newHead(newX, newY);
+    snake.push_front(newHead);
+    occupied[newY][newX] = true;
+
+    if (willGrow)
     {
         SpawnFood();
-    }
-    else
-    {
-        snake.pop_back();
     }
 }
 
@@ -164,7 +183,18 @@ int main(int /*argc*/, char** /*argv*/)
     screen = InitializeSDL(kGridWidth * kCellSize, kGridHeight * kCellSize);
 
     snake.clear();
+
+    // Reset occupancy grid
+    for (int y = 0; y < kGridHeight; ++y)
+    {
+        for (int x = 0; x < kGridWidth; ++x)
+        {
+            occupied[y][x] = false;
+        }
+    }
+
     snake.push_back(Cell(kGridWidth / 2, kGridHeight / 2));
+    occupied[snake.front().second][snake.front().first] = true;
 
     SpawnFood();
 
