@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "e0ddfbdd8ce8",
+  "session_id": "515bd2f6-fd5c-4606-80a8-c5d307d522d6",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-02T05:50:43.391519Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/snake.cpp"
+  ],
+  "agent": "Cursor",
+  "turn_id": "acf23b0a4e36",
+  "initial_attribution": {
+    "calculated_at": "2026-03-02T05:50:43.378822Z",
+    "agent_lines": 22,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 23,
+    "agent_percentage": 95.65217391304348
+  }
+}
