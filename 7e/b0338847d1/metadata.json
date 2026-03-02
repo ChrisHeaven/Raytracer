@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "7eb0338847d1",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/snake.cpp"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7e/b0338847d1/0/metadata.json",
+      "transcript": "/7e/b0338847d1/0/full.jsonl",
+      "context": "/7e/b0338847d1/0/context.md",
+      "content_hash": "/7e/b0338847d1/0/content_hash.txt",
+      "prompt": "/7e/b0338847d1/0/prompt.txt"
+    }
+  ]
+}
