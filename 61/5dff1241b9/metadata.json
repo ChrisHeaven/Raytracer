@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "615dff1241b9",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/snake.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/61/5dff1241b9/0/metadata.json",
+      "transcript": "/61/5dff1241b9/0/full.jsonl",
+      "context": "/61/5dff1241b9/0/context.md",
+      "content_hash": "/61/5dff1241b9/0/content_hash.txt",
+      "prompt": "/61/5dff1241b9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 72901,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 2746,
+    "api_call_count": 3
+  }
+}
