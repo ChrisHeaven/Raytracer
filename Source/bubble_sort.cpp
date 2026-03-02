@@ -1,29 +1,47 @@
-// Simple bubble sort implementation for demonstration.
+// Simple quick sort implementation for demonstration.
 // This file is currently standalone and not used by the raytracer.
 
 #include <vector>
 #include <iostream>
 
-// 冒泡排序：对整数数组从小到大排序
-void bubble_sort(std::vector<int>& data)
+// 快速排序：对整数数组从小到大排序
+namespace
 {
-    const std::size_t n = data.size();
-    if (n <= 1)
-        return;
-
-    bool swapped = true;
-    for (std::size_t i = 0; i < n - 1 && swapped; ++i)
+    void quick_sort_impl(std::vector<int>& data, int left, int right)
     {
-        swapped = false;
-        for (std::size_t j = 0; j < n - 1 - i; ++j)
+        if (left >= right)
+            return;
+
+        int i = left;
+        int j = right;
+        int pivot = data[left + (right - left) / 2];
+
+        while (i <= j)
         {
-            if (data[j] > data[j + 1])
+            while (data[i] < pivot) ++i;
+            while (data[j] > pivot) --j;
+
+            if (i <= j)
             {
-                std::swap(data[j], data[j + 1]);
-                swapped = true;
+                std::swap(data[i], data[j]);
+                ++i;
+                --j;
             }
         }
+
+        if (left < j)
+            quick_sort_impl(data, left, j);
+        if (i < right)
+            quick_sort_impl(data, i, right);
     }
+}
+
+void bubble_sort(std::vector<int>& data)
+{
+    if (data.size() <= 1)
+        return;
+
+    quick_sort_impl(data, 0, static_cast<int>(data.size()) - 1);
 }
 
 // 一个简单的测试 main，可按需要删除或修改
