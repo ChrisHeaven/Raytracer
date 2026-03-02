@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "cdbc8bc4d69e",
+  "session_id": "63b3794f-69fb-4b05-a71d-e7732a356584",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-02T04:27:16.252795Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "snake_game/snake.py"
+  ],
+  "agent": "Cursor",
+  "turn_id": "eb39dd2b0a77",
+  "initial_attribution": {
+    "calculated_at": "2026-03-02T04:27:16.235245Z",
+    "agent_lines": 0,
+    "human_added": 208,
+    "human_modified": 35,
+    "human_removed": 0,
+    "total_committed": 208,
+    "agent_percentage": 0
+  }
+}
