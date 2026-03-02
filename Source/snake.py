@@ -3,7 +3,7 @@ import time
 import tkinter as tk
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, List, Tuple
+from typing import Deque, Optional, Set, Tuple
 from tkinter import TclError, messagebox
 
 
@@ -33,15 +33,18 @@ class SnakeGame:
 
         self.snake: Deque[Cell] = deque()
         self.food: Cell = (0, 0)
-        self.occupied: List[List[bool]] = [
-            [False for _ in range(self.config.width)] for _ in range(self.config.height)
-        ]
+        # 用 set 替代二维 bool 数组，spawn_food 时直接从空格集合随机选取
+        self.occupied: Set[Cell] = set()
+        self.empty: Set[Cell] = set()
 
         self.direction_x = 1
         self.direction_y = 0
         self.is_alive = True
 
         self.last_update_ms = self._now_ms()
+
+        # canvas item id 缓存，避免重复创建/删除
+        self._food_id: Optional[int] = None
 
         self.root.bind("<Up>", self._on_key)
         self.root.bind("<Down>", self._on_key)
@@ -57,29 +60,29 @@ class SnakeGame:
 
     def _reset(self) -> None:
         self.snake.clear()
-        for y in range(self.config.height):
-            for x in range(self.config.width):
-                self.occupied[y][x] = False
+        self.occupied.clear()
+        self.empty = {
+            (x, y)
+            for y in range(self.config.height)
+            for x in range(self.config.width)
+        }
 
         start = (self.config.width // 2, self.config.height // 2)
         self.snake.appendleft(start)
-        self.occupied[start[1]][start[0]] = True
+        self.occupied.add(start)
+        self.empty.discard(start)
 
         self.direction_x = 1
         self.direction_y = 0
         self.is_alive = True
 
+        self.canvas.delete("all")
+        self._food_id = None
         self._spawn_food()
-        self._render()
+        self._draw_head(start)
 
     def _spawn_food(self) -> None:
-        empties: List[Cell] = []
-        for y in range(self.config.height):
-            for x in range(self.config.width):
-                if not self.occupied[y][x]:
-                    empties.append((x, y))
-
-        if not empties:
+        if not self.empty:
             self.is_alive = False
             try:
                 messagebox.showinfo("Snake", "You win! The grid is full.")
@@ -88,7 +91,42 @@ class SnakeGame:
             self.root.after(0, self.root.destroy)
             return
 
-        self.food = random.choice(empties)
+        self.food = random.choice(tuple(self.empty))
+        self._draw_food()
+
+    def _draw_food(self) -> None:
+        cs = self.config.cell_size
+        fx, fy = self.food
+        if self._food_id is not None:
+            self.canvas.coords(
+                self._food_id,
+                fx * cs, fy * cs,
+                fx * cs + cs, fy * cs + cs,
+            )
+        else:
+            self._food_id = self.canvas.create_rectangle(
+                fx * cs, fy * cs,
+                fx * cs + cs, fy * cs + cs,
+                fill="red", outline="",
+            )
+
+    def _draw_head(self, cell: Cell) -> None:
+        cs = self.config.cell_size
+        x, y = cell
+        self.canvas.create_rectangle(
+            x * cs, y * cs,
+            x * cs + cs, y * cs + cs,
+            fill="green", outline="", tags="snake",
+        )
+
+    def _erase_cell(self, cell: Cell) -> None:
+        cs = self.config.cell_size
+        x, y = cell
+        self.canvas.create_rectangle(
+            x * cs, y * cs,
+            x * cs + cs, y * cs + cs,
+            fill="black", outline="",
+        )
 
     def _on_close(self) -> None:
         self.is_alive = False
@@ -122,57 +160,35 @@ class SnakeGame:
         new_x = head_x + self.direction_x
         new_y = head_y + self.direction_y
 
-        hit_wall = (
+        if (
             new_x < 0
             or new_x >= self.config.width
             or new_y < 0
             or new_y >= self.config.height
-        )
-        if hit_wall:
+        ):
             self.is_alive = False
             return
 
-        will_grow = (new_x, new_y) == self.food
+        new_head = (new_x, new_y)
+        will_grow = new_head == self.food
 
         if not will_grow:
-            tail_x, tail_y = self.snake.pop()
-            self.occupied[tail_y][tail_x] = False
+            tail = self.snake.pop()
+            self.occupied.discard(tail)
+            self.empty.add(tail)
+            self._erase_cell(tail)
 
-        if self.occupied[new_y][new_x]:
+        if new_head in self.occupied:
             self.is_alive = False
             return
 
-        self.snake.appendleft((new_x, new_y))
-        self.occupied[new_y][new_x] = True
+        self.snake.appendleft(new_head)
+        self.occupied.add(new_head)
+        self.empty.discard(new_head)
+        self._draw_head(new_head)
 
         if will_grow:
             self._spawn_food()
-
-    def _render(self) -> None:
-        cs = self.config.cell_size
-        self.canvas.delete("all")
-
-        fx, fy = self.food
-        self.canvas.create_rectangle(
-            fx * cs,
-            fy * cs,
-            fx * cs + cs,
-            fy * cs + cs,
-            fill="red",
-            outline="",
-        )
-
-        for x, y in self.snake:
-            self.canvas.create_rectangle(
-                x * cs,
-                y * cs,
-                x * cs + cs,
-                y * cs + cs,
-                fill="green",
-                outline="",
-            )
-
-        self.canvas.update_idletasks()
 
     def tick(self) -> None:
         if not self.is_alive:
@@ -182,10 +198,10 @@ class SnakeGame:
         if now - self.last_update_ms > 120:
             self._update_snake()
             self.last_update_ms = now
+            self.canvas.update_idletasks()
 
         if self.is_alive:
-            self._render()
-            self.root.after(10, self.tick)
+            self.root.after(16, self.tick)
         else:
             try:
                 messagebox.showinfo("Snake", f"Game over. Score: {len(self.snake)}")
@@ -200,10 +216,9 @@ def main() -> None:
     root.resizable(False, False)
 
     game = SnakeGame(root, GridConfig())
-    root.after(10, game.tick)
+    root.after(16, game.tick)
     root.mainloop()
 
 
 if __name__ == "__main__":
     main()
-
