@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "140ac4cf2d9c",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/snake.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/14/0ac4cf2d9c/0/metadata.json",
+      "transcript": "/14/0ac4cf2d9c/0/full.jsonl",
+      "context": "/14/0ac4cf2d9c/0/context.md",
+      "content_hash": "/14/0ac4cf2d9c/0/content_hash.txt",
+      "prompt": "/14/0ac4cf2d9c/0/prompt.txt"
+    }
+  ]
+}
