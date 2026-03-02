@@ -3,7 +3,7 @@
   "checkpoint_id": "e026909b9d44",
   "strategy": "manual-commit",
   "branch": "master",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "Source/snake.cpp"
   ],
@@ -14,6 +14,13 @@
       "context": "/e0/26909b9d44/0/context.md",
       "content_hash": "/e0/26909b9d44/0/content_hash.txt",
       "prompt": "/e0/26909b9d44/0/prompt.txt"
+    },
+    {
+      "metadata": "/e0/26909b9d44/1/metadata.json",
+      "transcript": "/e0/26909b9d44/1/full.jsonl",
+      "context": "/e0/26909b9d44/1/context.md",
+      "content_hash": "/e0/26909b9d44/1/content_hash.txt",
+      "prompt": "/e0/26909b9d44/1/prompt.txt"
     }
   ]
 }
