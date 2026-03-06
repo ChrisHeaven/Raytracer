@@ -2,9 +2,10 @@
 
 #include <SDL/SDL.h>
 #include <deque>
-#include <cstdlib>
-#include <ctime>
+#include <vector>
+#include <random>
 #include <cstring>
+#include <algorithm>
 
 #include <glm/glm.hpp>
 
@@ -28,26 +29,64 @@ using Cell = std::pair<int, int>;
 std::deque<Cell> snake;
 Cell food;
 
-// Occupancy grid to accelerate collision checks
+// Occupancy grid for O(1) collision detection
 bool occupied[kGridHeight][kGridWidth];
+
+// Free-cell list for O(1) food spawning.
+// Each cell stores the index of its own slot so removal is O(1)
+// via swap-with-back.
+std::vector<Cell> freeCells;
+int freeCellIndex[kGridHeight][kGridWidth];  // freeCellIndex[y][x] = index in freeCells
+
+// C++11 PRNG — seeded once at startup
+std::mt19937 rng;
 
 int directionX = 1;
 int directionY = 0;
 bool isAlive   = true;
 
+// Remove a cell from freeCells in O(1) using swap-with-back.
+void RemoveFreeCell(int x, int y)
+{
+    const int idx  = freeCellIndex[y][x];
+    const int last = static_cast<int>(freeCells.size()) - 1;
+
+    if (idx != last)
+    {
+        // Overwrite the slot being removed with the last element.
+        freeCells[idx] = freeCells[last];
+        freeCellIndex[freeCells[idx].second][freeCells[idx].first] = idx;
+    }
+
+    freeCells.pop_back();
+    // Mark the index as invalid so accidental look-ups are detectable.
+    freeCellIndex[y][x] = -1;
+}
+
+// Add a cell back to freeCells in O(1).
+void AddFreeCell(int x, int y)
+{
+    freeCellIndex[y][x] = static_cast<int>(freeCells.size());
+    freeCells.push_back(Cell(x, y));
+}
+
 void SpawnFood()
 {
-    int x, y;
-
-    // Ensure food never spawns on the snake body
-    do
+    // Win condition: no free cells left means the snake fills the entire grid.
+    if (freeCells.empty())
     {
-        x = rand() % kGridWidth;
-        y = rand() % kGridHeight;
+        isAlive = false;
+        return;
     }
-    while (occupied[y][x]);
 
-    food = Cell(x, y);
+    // Pick a random free cell in O(1).
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(freeCells.size()) - 1);
+    const int idx = dist(rng);
+    food = freeCells[idx];
+
+    // The food cell is still technically free (not occupied by the snake),
+    // so we do NOT remove it from freeCells here.  It will be removed from
+    // freeCells when the snake's head moves into it (i.e. it becomes occupied).
 }
 
 void DrawCell(int gridX, int gridY, const vec3& color)
@@ -94,18 +133,20 @@ void UpdateSnake()
     {
         const Cell& tail = snake.back();
         occupied[tail.second][tail.first] = false;
+        AddFreeCell(tail.first, tail.second);
         snake.pop_back();
     }
 
-    // Self-collision check using occupancy grid (O(1))
+    // Self-collision check using occupancy grid (O(1)).
     if (occupied[newY][newX])
     {
         isAlive = false;
         return;
     }
 
-    const Cell newHead(newX, newY);
-    snake.push_front(newHead);
+    // The new head cell is currently free; claim it.
+    RemoveFreeCell(newX, newY);
+    snake.push_front(Cell(newX, newY));
     occupied[newY][newX] = true;
 
     if (willGrow)
@@ -188,17 +229,32 @@ void Render()
 
 int main(int /*argc*/, char** /*argv*/)
 {
-    srand(static_cast<unsigned int>(time(nullptr)));
+    // Seed the PRNG with a non-deterministic source.
+    rng.seed(std::random_device{}());
 
     screen = InitializeSDL(kGridWidth * kCellSize, kGridHeight * kCellSize);
 
-    snake.clear();
+    // Reset occupancy grid and free-cell structures.
+    std::memset(occupied,       0,  sizeof(occupied));
+    std::memset(freeCellIndex, -1, sizeof(freeCellIndex));
 
-    // Reset occupancy grid
-    std::memset(occupied, 0, sizeof(occupied));
+    freeCells.reserve(kGridWidth * kGridHeight);
+    for (int y = 0; y < kGridHeight; ++y)
+    {
+        for (int x = 0; x < kGridWidth; ++x)
+        {
+            freeCellIndex[y][x] = static_cast<int>(freeCells.size());
+            freeCells.push_back(Cell(x, y));
+        }
+    }
 
-    snake.push_back(Cell(kGridWidth / 2, kGridHeight / 2));
-    occupied[snake.front().second][snake.front().first] = true;
+    // Place the initial snake head at the grid centre.
+    const int startX = kGridWidth  / 2;
+    const int startY = kGridHeight / 2;
+
+    snake.push_back(Cell(startX, startY));
+    occupied[startY][startX] = true;
+    RemoveFreeCell(startX, startY);
 
     SpawnFood();
 
@@ -221,4 +277,3 @@ int main(int /*argc*/, char** /*argv*/)
 
     return 0;
 }
-
