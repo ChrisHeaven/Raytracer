@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "de4419495c33",
+  "session_id": "2290c008-f665-4558-9b25-262a0b0e8d5d",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-06T08:14:47.455308Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/skeleton.cpp"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5422404eeadf",
+  "token_usage": {
+    "input_tokens": 692387,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 5962,
+    "api_call_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-06T08:14:47.378747Z",
+    "agent_lines": 518,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 518,
+    "agent_percentage": 100
+  }
+}
