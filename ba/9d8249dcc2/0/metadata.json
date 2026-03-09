@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "ba9d8249dcc2",
+  "session_id": "d142b961-491c-4384-a14a-fd77d95282e0",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-09T09:22:37.710795Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "Source/snake.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "22a9b8c85bd3",
+  "token_usage": {
+    "input_tokens": 186859,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 5461,
+    "api_call_count": 5
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-09T09:22:37.571965Z",
+    "agent_lines": 135,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 135,
+    "agent_percentage": 100
+  }
+}
