@@ -1,0 +1,14 @@
+{
+  "trail_id": "044cd84e3d1e",
+  "branch": "3.0",
+  "base": "master",
+  "title": "尝试用python重构光追算法",
+  "body": "",
+  "status": "draft",
+  "author": "ChrisHeaven",
+  "assignees": [],
+  "labels": [],
+  "created_at": "2026-03-12T16:12:59.338461+08:00",
+  "updated_at": "2026-03-12T16:12:59.338461+08:00",
+  "merged_at": null
+}
