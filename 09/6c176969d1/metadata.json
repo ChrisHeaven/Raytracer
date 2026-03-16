@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "096c176969d1",
+  "strategy": "manual-commit",
+  "branch": "3.0",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "Makefile",
+    "Source/skeleton.cpp"
+  ],
+  "sessions": [
+    {
+      "metadata": "/09/6c176969d1/0/metadata.json",
+      "transcript": "/09/6c176969d1/0/full.jsonl",
+      "content_hash": "/09/6c176969d1/0/content_hash.txt",
+      "prompt": "/09/6c176969d1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1494725,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 19055,
+    "api_call_count": 37
+  }
+}
