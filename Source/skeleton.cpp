@@ -21,8 +21,8 @@ using glm::mat3;
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
-const int SCREEN_WIDTH = 300;
-const int SCREEN_HEIGHT = 300;
+const int SCREEN_WIDTH = 450;
+const int SCREEN_HEIGHT = 450;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
@@ -34,7 +34,7 @@ vec3 light_pos(0, -0.5, -0.7);
 float light_radi = 0.3f;
 vec3 light_colour = 14.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
-static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2][4];
+static vec3 anti_aliasing[SCREEN_WIDTH / 3][SCREEN_HEIGHT / 3][9];
 std::vector<Triangle> triangles;
 
 struct Intersection
@@ -177,16 +177,16 @@ void Draw()
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
 
-    pthread_t tid[4];
-    int area_id[4];
+    pthread_t tid[9];
+    int area_id[9];
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 9; i++)
     {
         area_id[i] = i;
         pthread_create(&tid[i], NULL, img_thread, &area_id[i]);
     }
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 9; i++)
         pthread_join(tid[i], NULL);
 
     if (SDL_MUSTLOCK(screen))
@@ -214,34 +214,23 @@ void *img_thread(void *arg)
 
     switch (area)
     {
-    case 0:
-        x_value = 0;
-        y_value = 0;
-        break;
-
-    case 1:
-        x_value = SCREEN_WIDTH / 2;
-        y_value = 0;
-        break;
-
-    case 2:
-        x_value = 0;
-        y_value = SCREEN_HEIGHT / 2;
-        break;
-
-    case 3:
-        x_value = SCREEN_WIDTH / 2;
-        y_value = SCREEN_HEIGHT / 2;
-        break;
-
+    case 0: x_value = 0;                y_value = 0;                break;
+    case 1: x_value = SCREEN_WIDTH / 3; y_value = 0;                break;
+    case 2: x_value = SCREEN_WIDTH / 3 * 2; y_value = 0;           break;
+    case 3: x_value = 0;                y_value = SCREEN_HEIGHT / 3; break;
+    case 4: x_value = SCREEN_WIDTH / 3; y_value = SCREEN_HEIGHT / 3; break;
+    case 5: x_value = SCREEN_WIDTH / 3 * 2; y_value = SCREEN_HEIGHT / 3; break;
+    case 6: x_value = 0;                y_value = SCREEN_HEIGHT / 3 * 2; break;
+    case 7: x_value = SCREEN_WIDTH / 3; y_value = SCREEN_HEIGHT / 3 * 2; break;
+    case 8: x_value = SCREEN_WIDTH / 3 * 2; y_value = SCREEN_HEIGHT / 3 * 2; break;
     default:
         printf("ERROR!\n");
         break;
     }
 
-    for (int i = 0; i < SCREEN_HEIGHT / 2; i++)
+    for (int i = 0; i < SCREEN_HEIGHT / 3; i++)
     {
-        for (int j = 0; j < SCREEN_WIDTH / 2; j++)
+        for (int j = 0; j < SCREEN_WIDTH / 3; j++)
         {
             x = j + x_value;
             y = i + y_value;
