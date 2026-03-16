@@ -1,6 +1,12 @@
 {
   "checkpoints": [
     {
+      "checkpoint_id": "80aaae9648a8",
+      "commit_sha": "39646fd2938b38b3cc9adfe1ad9a510745904bb0",
+      "created_at": "2026-03-16T12:06:56.704349Z",
+      "summary": "阴影还是错误的，你就这点水平吗，请详细对比原有的cpu代码进行检查并修复问题"
+    },
+    {
       "checkpoint_id": "1ec3ea0224ae",
       "commit_sha": "3eaa820b298b703d1da50f527118a272d4a738b3",
       "created_at": "2026-03-16T09:40:14.178166Z",
