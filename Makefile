@@ -4,13 +4,13 @@ FILE=skeleton
 #   Directories
 S_DIR=Source
 B_DIR=Build
-GLMDIR=/usr/include/glm
+GLMDIR=/opt/homebrew/include
 ########
 #   Output
 EXEC=$(B_DIR)/$(FILE)
 
 # default build settings
-CC_OPTS=-c -pipe -Wall -Wno-switch -ggdb -g3 
+CC_OPTS=-c -pipe -Wall -Wno-switch -O3
 LN_OPTS=
 CC=g++
 

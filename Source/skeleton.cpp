@@ -43,7 +43,12 @@ struct Intersection
     float distance;
     int triangle_index;
     vec3 colour;
+    bool is_mirror;
 };
+
+static const vec3 FRONT_V0(-0.76f, -0.87f, -1.0f);
+static const vec3 FRONT_V1(-0.76f,  1.0f,  -1.0f);
+static const vec3 FRONT_V2( 1.31f,  1.0f,  -1.0f);
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
@@ -259,10 +264,15 @@ void *img_thread(void *arg)
                     if (closest_intersection(sub_pixel, d, triangles, intersection, mirror_intersec, 0))
                     {
                         light_area = direct_light(intersection, seed);
-                        mirror_shadow = direct_light(mirror_intersec, seed);
-
-                        light_area = 0.5f * (indirect_light + (light_area + mirror_shadow) / 2.0f);
-                        // pixel_colour = light_area * triangles[intersection.triangle_index].color;
+                        if (intersection.is_mirror)
+                        {
+                            mirror_shadow = direct_light(mirror_intersec, seed);
+                            light_area = 0.5f * (indirect_light + (light_area + mirror_shadow) / 2.0f);
+                        }
+                        else
+                        {
+                            light_area = 0.5f * (indirect_light + light_area);
+                        }
                         pixel_colour = light_area * intersection.colour;
 
                         original_img[width][height] = pixel_colour;
@@ -294,14 +304,10 @@ bool closest_intersection(const vec3& start, const vec3& dir, const vector<Trian
     int triangle_index, ignore = 1;
     vec3 v0, v1, v2;
     vec3 reflect_position, reflect_dir;
-    vec3 front_triangle_v0, front_triangle_v1, front_triangle_v2;
-    front_triangle_v0 = vec3(-0.76f, -0.87f, -1.0f);
-    front_triangle_v1 = vec3(-0.76f, 1.0f, -1.0f);
-    front_triangle_v2 = vec3(1.31f, 1.0f, -1.0f);
     Intersection reflect_intersec;
 
     float t_front, u_front, v_front;
-    if (RayTriangleIntersection(start, dir, front_triangle_v0, front_triangle_v1, front_triangle_v2, t_front, u_front, v_front))
+    if (RayTriangleIntersection(start, dir, FRONT_V0, FRONT_V1, FRONT_V2, t_front, u_front, v_front))
         ignore = 0;
 
     for (size_t i = 0; i < triangles.size(); i++)
@@ -368,6 +374,7 @@ bool closest_intersection(const vec3& start, const vec3& dir, const vector<Trian
                 mirIntersection.position = reflect_intersec.position;
                 mirIntersection.distance = reflect_intersec.distance;
             }
+            cloestIntersection.is_mirror = true;
         }
         else
         {
@@ -375,6 +382,7 @@ bool closest_intersection(const vec3& start, const vec3& dir, const vector<Trian
             mirIntersection.position = start + min * dir;
             mirIntersection.distance = min;
             cloestIntersection.colour = triangles[triangle_index].color;
+            cloestIntersection.is_mirror = false;
         }
         return true;
     }
