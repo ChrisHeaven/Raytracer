@@ -15,6 +15,10 @@ No recorded activity before January 30, 2017
 #include <stdlib.h>
 #include <stdio.h>
 
+#ifdef USE_METAL
+#include "MetalRenderer.h"
+#endif
+
 using namespace std;
 using glm::vec3;
 using glm::mat3;
@@ -36,6 +40,10 @@ vec3 light_colour = 14.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
 static vec3 anti_aliasing[SCREEN_WIDTH / 3][SCREEN_HEIGHT / 3][9];
 std::vector<Triangle> triangles;
+
+#ifdef USE_METAL
+MetalRenderer* g_metal_renderer = nullptr;
+#endif
 
 struct Intersection
 {
@@ -100,6 +108,12 @@ int main(int argc, char* argv[])
 
     LoadTestModel(triangles);
 
+#ifdef USE_METAL
+    g_metal_renderer = new MetalRenderer(SCREEN_WIDTH, SCREEN_HEIGHT);
+    g_metal_renderer->uploadTriangles(triangles);
+    cout << "Using Metal GPU renderer" << endl;
+#endif
+
     while (NoQuitMessageSDL())
     {
         Update();
@@ -107,6 +121,11 @@ int main(int argc, char* argv[])
     }
 
     SDL_SaveBMP( screen, "screenshot.bmp" );
+
+#ifdef USE_METAL
+    delete g_metal_renderer;
+#endif
+
     return 0;
 }
 
@@ -177,6 +196,25 @@ void Draw()
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
 
+#ifdef USE_METAL
+    RenderParams params;
+    params.camera_pos   = camera_pos;
+    params.light_pos    = light_pos;
+    params.light_colour = light_colour;
+    params.indirect_light = indirect_light;
+    params.focal        = focal;
+    params.f            = f;
+    params.yaw          = yaw;
+    params.screen_width  = SCREEN_WIDTH;
+    params.screen_height = SCREEN_HEIGHT;
+
+    std::vector<glm::vec3> pixels(SCREEN_WIDTH * SCREEN_HEIGHT);
+    g_metal_renderer->render(params, pixels);
+
+    for (int y = 0; y < SCREEN_HEIGHT; y++)
+        for (int x = 0; x < SCREEN_WIDTH; x++)
+            PutPixelSDL(screen, x, y, pixels[y * SCREEN_WIDTH + x]);
+#else
     pthread_t tid[9];
     int area_id[9];
 
@@ -188,6 +226,7 @@ void Draw()
 
     for (int i = 0; i < 9; i++)
         pthread_join(tid[i], NULL);
+#endif
 
     if (SDL_MUSTLOCK(screen))
         SDL_UnlockSurface(screen);
