@@ -94,3 +94,7 @@ Read the output file to retrieve the result: /private/tmp/claude-501/-Users-yizh
 ---
 
 阴影还是错误的，你就这点水平吗，请详细对比原有的cpu代码进行检查并修复问题
+
+---
+
+这次效果比较接近cpu的版本了，请提交并推送这次修改到3.0分支
