@@ -110,3 +110,7 @@ Read the output file to retrieve the result: /private/tmp/claude-501/-Users-yizh
 ---
 
 镜面那面墙与其他墙面的接缝处的显示有问题，会模糊且感觉墙面没接上，需要优化这个问题，你可以先分析可能的原因再给出可行的修复方案，使用agent team
+
+---
+
+你确定解决了问题？我看到镜面还是和其他墙面没有接上，请重新评估并修复
