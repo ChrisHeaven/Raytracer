@@ -525,7 +525,7 @@ bool mirror_intersection(const vec3& start, const vec3& dir, const vector<Triang
         v2 = triangles[i].v2;
 
         float t_hit, u_hit, v_hit;
-        if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.03f)
+        if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.001f)
         {
             if (!flag)
             {

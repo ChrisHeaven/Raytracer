@@ -120,7 +120,7 @@ inline GPUIntersection mirror_intersect_gpu(float3 orig,
                                    triangles[i].v2.xyz,
                                    t))
         {
-            if (t > 0.03f && t < result.distance) {
+            if (t > 0.001f && t < result.distance) {
                 result.distance       = t;
                 result.triangle_index = i;
                 result.position       = orig + dir * t;
@@ -176,27 +176,12 @@ inline GPUIntersection closest_intersect_gpu(float3 orig,
     result.is_mirror      = false;
     result.position       = float3(0.0f);
 
-    // --- Front-plane test ---
-    int ignore = 1; // default: ignore front-plane (only render up to tri 9)
-    {
-        float t = 0.0f;
-        if (ray_triangle_intersect(orig, dir,
-                                   uni.front_v0.xyz,
-                                   uni.front_v1.xyz,
-                                   uni.front_v2.xyz,
-                                   t))
-        {
-            ignore = 0; // ray passed through the opening — see full scene
-        }
-    }
-
     // --- Triangle loop ---
-    int loop_count = triangle_count;
-    if (ignore == 1 && light == 0) {
-        loop_count = min(10, triangle_count); // only first 10 triangles
-    }
-
-    for (int i = 0; i < loop_count; ++i) {
+    // Always test all triangles for primary and shadow rays.
+    // The original CPU front-plane test caused seam blurring: AA jitter made
+    // some sub-samples hit the front plane (ignore=0, all 30 tris) and others
+    // miss it (ignore=1, only 10 tris), giving inconsistent results per pixel.
+    for (int i = 0; i < triangle_count; ++i) {
         float t = 0.0f;
         if (ray_triangle_intersect(orig, dir,
                                    triangles[i].v0.xyz,
