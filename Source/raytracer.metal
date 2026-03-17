@@ -347,14 +347,15 @@ kernel void raytracer_kernel(
     float focal_y = (-0.5f + 0.5f / sh_f + float(y) / sh_f)
                     * (uni.focal - uni.camera_pos.z) / uni.f;
 
-    // --- Anti-aliasing sub-sample grid (3×3, indices 0..8) ---
-    int a_idx = int(sample_idx) / 3;          // 0, 1, 2
-    int b_idx = int(sample_idx) % 3;          // 0, 1, 2
-    float a   = float(a_idx - 1) * 8.0f;     // -8, 0, 8
-    float b   = float(b_idx - 1) * 8.0f;     // -8, 0, 8
+    // --- Anti-aliasing sub-sample grid (3×3, stratified jitter) ---
+    // Divide [-8, 8] into 3 equal strata of width 16/3 each.
+    // Each sample falls uniformly within its stratum — no gaps, no overlap.
+    // Total spread stays ±8 pixels so depth-of-field effect is unchanged.
+    int a_idx = int(sample_idx) / 3;   // 0, 1, 2
+    int b_idx = int(sample_idx) % 3;   // 0, 1, 2
 
-    float x_ = b - b / 2.0f + b / 2.0f * rand_float(seed);
-    float y_ = a - a / 2.0f + a / 2.0f * rand_float(seed);
+    float x_ = -8.0f + (float(b_idx) + rand_float(seed)) * (16.0f / 3.0f);
+    float y_ = -8.0f + (float(a_idx) + rand_float(seed)) * (16.0f / 3.0f);
 
     // --- Sub-pixel position ---
     float3 sub_pixel = float3(

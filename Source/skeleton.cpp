@@ -25,8 +25,8 @@ using glm::mat3;
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
-const int SCREEN_WIDTH = 450;
-const int SCREEN_HEIGHT = 450;
+const int SCREEN_WIDTH = 600;
+const int SCREEN_HEIGHT = 600;
 SDL_Surface* screen;
 int t;
 float f = 1.0;
