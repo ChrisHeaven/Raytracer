@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "9018da26f0ed",
+  "strategy": "manual-commit",
+  "branch": "4.0",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/MetalRenderer.mm",
+    "Source/TestModel.h"
+  ],
+  "sessions": [
+    {
+      "metadata": "/90/18da26f0ed/0/metadata.json",
+      "transcript": "/90/18da26f0ed/0/full.jsonl",
+      "content_hash": "/90/18da26f0ed/0/content_hash.txt",
+      "prompt": "/90/18da26f0ed/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4818577,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 52915,
+    "api_call_count": 64
+  }
+}

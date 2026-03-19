@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "9018da26f0ed",
+  "session_id": "1275f4d6-450e-42f4-aaf4-a4fe984486c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-19T06:16:45.399184Z",
+  "branch": "4.0",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "Source/MetalRenderer.mm",
+    "Source/TestModel.h"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "cc9a225aa1fe",
+  "token_usage": {
+    "input_tokens": 4818577,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 52915,
+    "api_call_count": 64
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-19T06:16:45.227545Z",
+    "agent_lines": 35,
+    "human_added": 100,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 135,
+    "agent_percentage": 25.925925925925924
+  }
+}
