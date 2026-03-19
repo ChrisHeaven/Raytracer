@@ -3,7 +3,7 @@
   "checkpoint_id": "58c966918bde",
   "strategy": "manual-commit",
   "branch": "4.0",
-  "checkpoints_count": 13,
+  "checkpoints_count": 15,
   "files_touched": [
     "Source/raytracer.metal",
     "Source/skeleton.cpp"
@@ -20,13 +20,19 @@
       "transcript": "/58/c966918bde/1/full.jsonl",
       "content_hash": "/58/c966918bde/1/content_hash.txt",
       "prompt": "/58/c966918bde/1/prompt.txt"
+    },
+    {
+      "metadata": "/58/c966918bde/2/metadata.json",
+      "transcript": "/58/c966918bde/2/full.jsonl",
+      "content_hash": "/58/c966918bde/2/content_hash.txt",
+      "prompt": "/58/c966918bde/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 26923656,
+    "input_tokens": 40475036,
     "cache_creation_tokens": 0,
     "cache_read_tokens": 0,
-    "output_tokens": 123277,
-    "api_call_count": 304
+    "output_tokens": 253841,
+    "api_call_count": 463
   }
 }
