@@ -77,7 +77,7 @@ inline void LoadTestModel( std::vector<Triangle>& triangles )
 	triangles.push_back( Triangle( F, B, D, yellow ) );
 	triangles.push_back( Triangle( H, F, D, yellow ) );
 
-	// Ceiling
+	// Ceiling (indices 6-7)
 	triangles.push_back( Triangle( E, F, G, cyan ) );
 	triangles.push_back( Triangle( F, H, G, cyan ) );
 
@@ -175,6 +175,24 @@ inline void LoadTestModel( std::vector<Triangle>& triangles )
 
 		triangles[i].ComputeNormal();
 	}
+
+	// ---------------------------------------------------------------------------
+	// Ceiling light panel — emissive rectangle flush with ceiling
+	// Post-transform coordinates. Ceiling is at y = -1.
+	// Light size: 0.4 x 0.3, centered at (0, -1, -0.5)
+	// y = -1.001 to sit just above ceiling and avoid z-fighting
+
+	float ly = -0.999f;
+
+	vec3 LA(-0.2f, ly, -0.65f);
+	vec3 LB( 0.2f, ly, -0.65f);
+	vec3 LC( 0.2f, ly, -0.35f);
+	vec3 LD(-0.2f, ly, -0.35f);
+	vec3 light_white(1.0f, 1.0f, 1.0f);
+
+	// Light emissive panel (index 30-31)
+	triangles.push_back( Triangle( LA, LB, LC, light_white ) );  // 30
+	triangles.push_back( Triangle( LA, LC, LD, light_white ) );  // 31
 }
 
 #endif

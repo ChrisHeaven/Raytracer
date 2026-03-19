@@ -2,18 +2,6 @@
 using namespace metal;
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-constant int   SCREEN_WIDTH  = 450;
-constant int   SCREEN_HEIGHT = 450;
-constant int   MAX_TRIANGLES = 30;
-
-// Front-plane test vertices (world space)
-constant float3 FRONT_V0 = float3(-0.76f, -0.87f, -1.0f);
-constant float3 FRONT_V1 = float3(-0.76f,  1.0f,  -1.0f);
-constant float3 FRONT_V2 = float3( 1.31f,  1.0f,  -1.0f);
-
-// ---------------------------------------------------------------------------
 // Data structures
 // ---------------------------------------------------------------------------
 struct GPUTriangle {
@@ -29,16 +17,18 @@ struct RenderUniforms {
     float4 light_pos;
     float4 light_colour;
     float4 indirect_light;
-    float4 front_v0;
-    float4 front_v1;
-    float4 front_v2;
+    float4 light_corner;
+    float4 light_edge_u;
+    float4 light_edge_v;
+    float4 light_normal;
     float  focal;
     float  f;
     float  yaw;
+    float  light_area_val;
     int    triangle_count;
+    int    light_tri_start;
     int    screen_width;
     int    screen_height;
-    float  _pad[2];
 };
 
 struct GPUIntersection {
@@ -119,6 +109,19 @@ inline float3 cosine_weighted_hemisphere(float3 normal, thread uint& seed) {
     float3 v = cross(w, u);
 
     return u * (cos(phi) * sin_theta) + v * (sin(phi) * sin_theta) + w * cos_theta;
+}
+
+// ---------------------------------------------------------------------------
+// Sample a random point on the rectangular area light (stratified 2×2)
+// ---------------------------------------------------------------------------
+inline float3 sample_area_light(constant RenderUniforms& uni,
+                                 thread uint& seed,
+                                 int stratum_u, int stratum_v)
+{
+    // Stratified: divide [0,1]² into 2×2 cells
+    float u = (float(stratum_u) + rand_float(seed)) * 0.5f;
+    float v = (float(stratum_v) + rand_float(seed)) * 0.5f;
+    return uni.light_corner.xyz + u * uni.light_edge_u.xyz + v * uni.light_edge_v.xyz;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,86 +283,67 @@ inline GPUIntersection closest_intersect_gpu(float3 orig,
 }
 
 // ---------------------------------------------------------------------------
-// direct_light_gpu
+// direct_light_gpu — area light sampling (stratified 2×2 = 4 samples)
 // ---------------------------------------------------------------------------
+constant int N_LIGHT_SAMPLES = 3;
+
 inline float3 direct_light_gpu(GPUIntersection        point,
                                 constant GPUTriangle*  triangles,
                                 int                    triangle_count,
                                 constant RenderUniforms& uni,
                                 thread uint&           seed)
 {
-    int    idx           = point.triangle_index;
-    float3 surface_light = uni.light_pos.xyz - point.position;
-    float  r             = length(surface_light);
+    int    idx    = point.triangle_index;
+    float3 normal = triangles[idx].normal.xyz;
+    float3 light_n = uni.light_normal.xyz;
 
-    float  result_dot    = dot(surface_light, triangles[idx].normal.xyz);
-    float  area_divisor  = 4.0f * M_PI_F * r * r;
+    float3 accum = float3(0.0f);
 
-    float3 light_area;
-    if (result_dot > 0.0f) {
-        light_area = (result_dot / area_divisor) * uni.light_colour.xyz;
-    } else {
-        light_area = float3(0.0f);
+    // 3 stratified random samples on the rectangular area light
+    for (int s = 0; s < N_LIGHT_SAMPLES; ++s) {
+        int su = int(rand_float(seed) * 2.0f);
+        int sv = int(rand_float(seed) * 2.0f);
+        su = min(su, 1); sv = min(sv, 1);
+        float3 sample_pos = sample_area_light(uni, seed, su, sv);
+        float3 dir = sample_pos - point.position;
+        float  r   = length(dir);
+        float3 dir_n = dir / r;
+
+        // Cosine at surface
+        float cos_surface = dot(dir_n, normal);
+        if (cos_surface <= 0.0f) continue;
+
+        // Cosine at light (light normal points into scene = +y)
+        float cos_light = dot(-dir_n, light_n);
+        if (cos_light <= 0.0f) continue;
+
+        // Shadow test: trace from surface to light sample point
+        GPUIntersection shadow = simple_intersect_gpu(point.position, dir,
+                                                       triangles, triangle_count);
+
+        // Skip light geometry itself in shadow test
+        bool blocked = (shadow.triangle_index >= 0) &&
+                       (shadow.distance < 1.0f) &&
+                       (shadow.triangle_index != idx) &&
+                       (shadow.triangle_index < uni.light_tri_start);
+
+        if (blocked) continue;
+
+        // Area light contribution:
+        // L = Le * cos_surface * cos_light * A / (N * π * r²)
+        float geom = cos_surface * cos_light * uni.light_area_val /
+                     (float(N_LIGHT_SAMPLES) * M_PI_F * r * r);
+        accum += geom * uni.light_colour.xyz;
     }
 
-    // --- Shadow branch ---
-    bool do_shadow_check = true;
-    if (uni.light_pos.y < -0.20f) {
-        // Only cast shadow rays from surfaces above the threshold
-        do_shadow_check = (point.position.y >= -0.20f);
-    }
-
-    if (do_shadow_check) {
-        GPUIntersection occluder = closest_intersect_gpu(point.position,
-                                                         surface_light,
-                                                         triangles,
-                                                         triangle_count,
-                                                         1,  // light ray
-                                                         uni);
-
-        // CPU checks: r > length(dis) where dis = t * surface_light
-        // → r > t * r → 1.0 > t
-        // i.e. occluder parameter t must be < 1.0 to be between surface and light
-        bool blocked = (occluder.triangle_index >= 0) &&
-                       (occluder.distance < 1.0f)     &&
-                       (result_dot > 0.0f)             &&
-                       (occluder.triangle_index != idx);
-
-        if (blocked) {
-            light_area = float3(0.0f);
-
-            // Soft shadow: 24 jittered samples
-            // Use occluder.triangle_index (not idx) to search around the occluder,
-            // matching CPU: shadow_intersection(point.position, direction, inter.triangle_index, ...)
-            int occluder_idx = occluder.triangle_index;
-            float3 soft = float3(0.0f);
-            for (int s = 0; s < 16; ++s) {
-                float jx = rand_float(seed) * 2.0f - 1.0f;
-                float jy = rand_float(seed) * 2.0f - 1.0f;
-                float jz = rand_float(seed) * 2.0f - 1.0f;
-
-                float3 jitter_dir = surface_light + float3(0.05f * jx,
-                                                           0.05f * jy,
-                                                           0.05f * jz);
-                if (shadow_intersect_gpu(point.position, jitter_dir,
-                                         occluder_idx, triangles, triangle_count)) {
-                    // fully in shadow — add nothing
-                } else {
-                    soft += triangles[idx].color.xyz;
-                }
-            }
-            light_area += soft / 16.0f;
-        }
-    }
-
-    return light_area;
+    return accum;
 }
 
 // ---------------------------------------------------------------------------
 // indirect_light_one_bounce — 1-bounce global illumination
 // Shoots N_BOUNCES random cosine-weighted rays from the surface and averages.
 // ---------------------------------------------------------------------------
-constant int N_BOUNCES = 4;
+constant int N_BOUNCES = 2;
 
 inline float3 indirect_light_one_bounce(GPUIntersection point,
                                          constant GPUTriangle* triangles,
@@ -389,24 +373,40 @@ inline float3 indirect_light_one_bounce(GPUIntersection point,
 
         if (bounce_hit.triangle_index < 0) continue;
 
+        // Skip if bounce hit the light itself
         int bounce_idx = bounce_hit.triangle_index;
-        float3 bounce_normal = triangles[bounce_idx].normal.xyz;
-        float3 bounce_to_light = uni.light_pos.xyz - bounce_hit.position;
-        float bounce_r = length(bounce_to_light);
-        float bounce_dot = dot(bounce_to_light, bounce_normal);
+        if (bounce_idx >= uni.light_tri_start) continue;
 
-        if (bounce_dot <= 0.0f) continue;
+        float3 bounce_normal = triangles[bounce_idx].normal.xyz;
+
+        // Sample 1 random point on the area light for bounce illumination
+        int su = int(rand_float(seed) * 2.0f);
+        int sv = int(rand_float(seed) * 2.0f);
+        su = min(su, 1); sv = min(sv, 1);
+        float3 light_sample = sample_area_light(uni, seed, su, sv);
+        float3 bounce_to_light = light_sample - bounce_hit.position;
+        float bounce_r = length(bounce_to_light);
+        float3 bounce_dir_n = bounce_to_light / bounce_r;
+
+        float bounce_cos_surface = dot(bounce_dir_n, bounce_normal);
+        if (bounce_cos_surface <= 0.0f) continue;
+
+        float bounce_cos_light = dot(-bounce_dir_n, uni.light_normal.xyz);
+        if (bounce_cos_light <= 0.0f) continue;
 
         GPUIntersection shadow_test = simple_intersect_gpu(bounce_hit.position,
                                                             bounce_to_light,
                                                             triangles, triangle_count);
         if (shadow_test.triangle_index >= 0 &&
             shadow_test.distance < 1.0f &&
-            shadow_test.triangle_index != bounce_idx)
+            shadow_test.triangle_index != bounce_idx &&
+            shadow_test.triangle_index < uni.light_tri_start)
             continue;
 
-        float bounce_area = 4.0f * M_PI_F * bounce_r * bounce_r;
-        float3 bounce_direct = (bounce_dot / bounce_area) * uni.light_colour.xyz;
+        // Area light formula for single sample
+        float bounce_geom = bounce_cos_surface * bounce_cos_light * uni.light_area_val /
+                            (M_PI_F * bounce_r * bounce_r);
+        float3 bounce_direct = bounce_geom * uni.light_colour.xyz;
 
         accum += triangles[bounce_idx].color.xyz * bounce_direct;
     }
@@ -494,6 +494,10 @@ kernel void raytracer_kernel(
     float3 pixel_colour = float3(0.0f);
 
     if (intersection.triangle_index >= 0) {
+        // If we hit a light source triangle, return its emission directly
+        if (intersection.triangle_index >= uni.light_tri_start) {
+            pixel_colour = float3(1.0f);  // white emissive
+        } else {
         float3 light_area = direct_light_gpu(intersection,
                                              triangles,
                                              uni.triangle_count,
@@ -546,6 +550,7 @@ kernel void raytracer_kernel(
         }
 
         pixel_colour = light_area * intersection.colour;
+        } // end non-light-triangle branch
     }
 
     // --- Tone mapping (extended Reinhard with white point) + gamma correction ---

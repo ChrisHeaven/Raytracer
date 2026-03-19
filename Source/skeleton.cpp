@@ -36,9 +36,9 @@ float focal = -0.5;
 float zz = 3.0;
 float yaw = 0.0f * 3.1415926 / 180;
 vec3 camera_pos(0, 0, -zz);
-vec3 light_pos(0, -0.5, -0.7);
+vec3 light_pos(0, -0.999, -0.5);   // center of area light on ceiling
 float light_radi = 0.3f;
-vec3 light_colour = 14.f * vec3(1, 1, 1);
+vec3 light_colour = 28.f * vec3(1, 1, 1);
 vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
 static vec3 anti_aliasing[SCREEN_WIDTH / 3][SCREEN_HEIGHT / 3][9];
 std::vector<Triangle> triangles;
@@ -286,6 +286,13 @@ void Draw()
     params.light_pos    = light_pos;
     params.light_colour = light_colour;
     params.indirect_light = indirect_light;
+    // Area light: rectangle on ceiling (0.4 x 0.3, centered at (0, -0.999, -0.5))
+    params.light_corner = vec3(-0.2f, -0.999f, -0.65f);
+    params.light_edge_u = vec3(0.4f, 0.0f, 0.0f);
+    params.light_edge_v = vec3(0.0f, 0.0f, 0.3f);
+    params.light_normal = vec3(0.0f, 1.0f, 0.0f);  // pointing down (+y is down in scene)
+    params.light_area   = 0.4f * 0.3f;              // 0.12
+    params.light_tri_start = 30;                     // first light triangle index
     params.focal        = focal;
     params.f            = f;
     params.yaw          = yaw;

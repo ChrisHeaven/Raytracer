@@ -17,16 +17,18 @@ struct RenderUniforms {
     simd_float4 light_pos;
     simd_float4 light_colour;
     simd_float4 indirect_light;
-    simd_float4 front_v0;
-    simd_float4 front_v1;
-    simd_float4 front_v2;
+    simd_float4 light_corner;
+    simd_float4 light_edge_u;
+    simd_float4 light_edge_v;
+    simd_float4 light_normal;
     float focal;
     float f;
     float yaw;
+    float light_area_val;
     int triangle_count;
+    int light_tri_start;
     int screen_width;
     int screen_height;
-    float _pad[2];
 };
 
 // ---------------------------------------------------------------------------
@@ -194,22 +196,22 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
 
         // 1. Fill uniforms
         RenderUniforms uni;
-        uni.camera_pos    = toFloat4(params.camera_pos);
-        uni.light_pos     = toFloat4(params.light_pos);
-        uni.light_colour  = toFloat4(params.light_colour);
+        uni.camera_pos     = toFloat4(params.camera_pos);
+        uni.light_pos      = toFloat4(params.light_pos);
+        uni.light_colour   = toFloat4(params.light_colour);
         uni.indirect_light = toFloat4(params.indirect_light);
-        // Hardcoded front-plane vertices (must match shader)
-        uni.front_v0 = simd_make_float4(-0.76f, -0.87f, -1.0f, 0.0f);
-        uni.front_v1 = simd_make_float4(-0.76f,  1.0f,  -1.0f, 0.0f);
-        uni.front_v2 = simd_make_float4( 1.31f,  1.0f,  -1.0f, 0.0f);
+        uni.light_corner   = toFloat4(params.light_corner);
+        uni.light_edge_u   = toFloat4(params.light_edge_u);
+        uni.light_edge_v   = toFloat4(params.light_edge_v);
+        uni.light_normal   = toFloat4(params.light_normal);
         uni.focal          = params.focal;
         uni.f              = params.f;
         uni.yaw            = params.yaw;
+        uni.light_area_val = params.light_area;
         uni.triangle_count = (int)(triBuf.length / sizeof(GPUTriangle));
+        uni.light_tri_start = params.light_tri_start;
         uni.screen_width   = params.screen_width;
         uni.screen_height  = params.screen_height;
-        uni._pad[0]        = 0.0f;
-        uni._pad[1]        = 0.0f;
 
         // 2. Copy uniforms into shared buffer
         memcpy(uniBuf.contents, &uni, sizeof(RenderUniforms));
