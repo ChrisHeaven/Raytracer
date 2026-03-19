@@ -3,6 +3,12 @@
     {
       "checkpoint_id": "58c966918bde",
       "commit_sha": "d6254689e7808fbe481a6ec2ba11eb1a4a46aa32",
+      "created_at": "2026-03-19T02:53:59.644876Z",
+      "summary": "以24fps为目标帧率，继续优化渲染效果，要尽可能真实，你需要不断通过截图确认渲染效果，精益求精"
+    },
+    {
+      "checkpoint_id": "58c966918bde",
+      "commit_sha": "d6254689e7808fbe481a6ec2ba11eb1a4a46aa32",
       "created_at": "2026-03-19T02:53:58.640293Z",
       "summary": "效果还是不行，我对你太失望了，回退掉本次的修改吧"
     }
