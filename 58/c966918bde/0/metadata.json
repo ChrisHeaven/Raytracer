@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "58c966918bde",
+  "session_id": "1275f4d6-450e-42f4-aaf4-a4fe984486c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-19T02:53:58.636565Z",
+  "branch": "4.0",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "Source/raytracer.metal",
+    "Source/skeleton.cpp"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "cc9a225aa1fe",
+  "token_usage": {
+    "input_tokens": 4818577,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 52915,
+    "api_call_count": 64
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-19T02:53:58.460286Z",
+    "agent_lines": 246,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 246,
+    "agent_percentage": 100
+  }
+}
