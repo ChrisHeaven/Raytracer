@@ -4,6 +4,7 @@ No recorded activity before January 30, 2017
 
 #include <cstddef>
 #include <iostream>
+#include <fstream>
 #include <glm/glm.hpp>
 #include <SDL/SDL.h>
 #include "SDLauxiliary.h"
@@ -28,6 +29,7 @@ using glm::mat3;
 const int SCREEN_WIDTH = 600;
 const int SCREEN_HEIGHT = 600;
 SDL_Surface* screen;
+std::vector<glm::vec3> g_last_pixels; // Store last rendered pixels for screenshot
 int t;
 float f = 1.0;
 float focal = -0.5;
@@ -100,6 +102,71 @@ inline bool RayTriangleIntersection(const vec3& orig,
     return t > 0.0f;
 }
 
+// Manual BMP writer from vec3 pixel array (row-major, top-to-bottom)
+static void SaveBMPFromPixels(const char* path, const std::vector<glm::vec3>& pixels, int w, int h)
+{
+    int row_pad = (4 - (w * 3) % 4) % 4;
+    int img_size = (w * 3 + row_pad) * h;
+    int file_size = 54 + img_size;
+
+    unsigned char header[54] = {};
+    header[0] = 'B'; header[1] = 'M';
+    header[2] = file_size; header[3] = file_size >> 8;
+    header[4] = file_size >> 16; header[5] = file_size >> 24;
+    header[10] = 54;
+    header[14] = 40;
+    header[18] = w; header[19] = w >> 8; header[20] = w >> 16; header[21] = w >> 24;
+    header[22] = h; header[23] = h >> 8; header[24] = h >> 16; header[25] = h >> 24;
+    header[26] = 1;
+    header[28] = 24;
+    header[34] = img_size; header[35] = img_size >> 8;
+    header[36] = img_size >> 16; header[37] = img_size >> 24;
+
+    std::ofstream f(path, std::ios::binary);
+    if (!f) { cerr << "SaveBMP: cannot open " << path << endl; return; }
+
+    f.write(reinterpret_cast<char*>(header), 54);
+
+    unsigned char pad[3] = {0, 0, 0};
+    // BMP stores bottom-to-top
+    for (int y = h - 1; y >= 0; --y) {
+        for (int x = 0; x < w; ++x) {
+            const glm::vec3& c = pixels[y * w + x];
+            unsigned char r = (unsigned char)glm::clamp(c.r * 255.0f, 0.0f, 255.0f);
+            unsigned char g = (unsigned char)glm::clamp(c.g * 255.0f, 0.0f, 255.0f);
+            unsigned char b = (unsigned char)glm::clamp(c.b * 255.0f, 0.0f, 255.0f);
+            unsigned char bgr[3] = {b, g, r};
+            f.write(reinterpret_cast<char*>(bgr), 3);
+        }
+        if (row_pad) f.write(reinterpret_cast<char*>(pad), row_pad);
+    }
+
+    f.close();
+    cout << "Screenshot saved: " << path << " (" << w << "x" << h << ")" << endl;
+}
+
+// Fallback BMP writer from SDL surface (for CPU path)
+static void SaveBMP(const char* path, SDL_Surface* surf)
+{
+    if (!surf) { cerr << "SaveBMP: null surface" << endl; return; }
+
+    int w = surf->w, h = surf->h;
+    std::vector<glm::vec3> pixels(w * h);
+
+    if (SDL_MUSTLOCK(surf)) SDL_LockSurface(surf);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            Uint32 pixel = *((Uint32*)((Uint8*)surf->pixels + y * surf->pitch) + x);
+            Uint8 r, g, b;
+            SDL_GetRGB(pixel, surf->format, &r, &g, &b);
+            pixels[y * w + x] = glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f);
+        }
+    }
+    if (SDL_MUSTLOCK(surf)) SDL_UnlockSurface(surf);
+
+    SaveBMPFromPixels(path, pixels, w, h);
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -114,13 +181,30 @@ int main(int argc, char* argv[])
     cout << "Using Metal GPU renderer" << endl;
 #endif
 
+    int frame_count = 0;
     while (NoQuitMessageSDL())
     {
         Update();
         Draw();
+        frame_count++;
+
+        if (frame_count == 3) {  // Save after a few warm-up frames
+#ifdef USE_METAL
+            if (!g_last_pixels.empty())
+                SaveBMPFromPixels("screenshot.bmp", g_last_pixels, SCREEN_WIDTH, SCREEN_HEIGHT);
+            else
+#endif
+                SaveBMP("screenshot.bmp", screen);
+        }
     }
 
-    SDL_SaveBMP( screen, "screenshot.bmp" );
+    // Save again on exit with latest frame
+#ifdef USE_METAL
+    if (!g_last_pixels.empty())
+        SaveBMPFromPixels("screenshot.bmp", g_last_pixels, SCREEN_WIDTH, SCREEN_HEIGHT);
+    else
+#endif
+        SaveBMP("screenshot.bmp", screen);
 
 #ifdef USE_METAL
     delete g_metal_renderer;
@@ -210,6 +294,7 @@ void Draw()
 
     std::vector<glm::vec3> pixels(SCREEN_WIDTH * SCREEN_HEIGHT);
     g_metal_renderer->render(params, pixels);
+    g_last_pixels = pixels; // Store for screenshot
 
     for (int y = 0; y < SCREEN_HEIGHT; y++)
         for (int x = 0; x < SCREEN_WIDTH; x++)

@@ -50,10 +50,16 @@ struct GPUIntersection {
 };
 
 // ---------------------------------------------------------------------------
-// LCG random number generator
+// PCG-based random number generator (much better than LCG for spatial seeds)
 // ---------------------------------------------------------------------------
+inline uint pcg_hash(uint input) {
+    uint state = input * 747796405u + 2891336453u;
+    uint word  = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
 inline uint lcg_rand(thread uint& seed) {
-    seed = seed * 1664525u + 1013904223u;
+    seed = pcg_hash(seed);
     return seed;
 }
 
@@ -94,6 +100,60 @@ inline bool ray_triangle_intersect(float3 orig,
 
     t = dot(e2, qvec) * invDet;
     return t > 0.0f;
+}
+
+// ---------------------------------------------------------------------------
+// Cosine-weighted hemisphere sampling for diffuse bounce
+// ---------------------------------------------------------------------------
+inline float3 cosine_weighted_hemisphere(float3 normal, thread uint& seed) {
+    float r1 = rand_float(seed);
+    float r2 = rand_float(seed);
+    float phi = 2.0f * M_PI_F * r1;
+    float cos_theta = sqrt(1.0f - r2);
+    float sin_theta = sqrt(r2);
+
+    // Build orthonormal basis (TBN) from normal
+    float3 w = normal;
+    float3 helper = abs(w.x) > 0.9f ? float3(0, 1, 0) : float3(1, 0, 0);
+    float3 u = normalize(cross(helper, w));
+    float3 v = cross(w, u);
+
+    return u * (cos(phi) * sin_theta) + v * (sin(phi) * sin_theta) + w * cos_theta;
+}
+
+// ---------------------------------------------------------------------------
+// simple_intersect_gpu — lightweight closest-hit, no mirror logic
+// Used for bounce rays and bounce shadow rays.
+// ---------------------------------------------------------------------------
+inline GPUIntersection simple_intersect_gpu(float3 orig,
+                                             float3 dir,
+                                             constant GPUTriangle* triangles,
+                                             int triangle_count)
+{
+    GPUIntersection result;
+    result.distance       = 1e30f;
+    result.triangle_index = -1;
+    result.colour         = float3(0.0f);
+    result.is_mirror      = false;
+    result.position       = float3(0.0f);
+
+    for (int i = 0; i < triangle_count; ++i) {
+        float t = 0.0f;
+        if (ray_triangle_intersect(orig, dir,
+                                   triangles[i].v0.xyz,
+                                   triangles[i].v1.xyz,
+                                   triangles[i].v2.xyz,
+                                   t))
+        {
+            if (t > 0.001f && t < result.distance) {
+                result.distance       = t;
+                result.triangle_index = i;
+                result.position       = orig + dir * t;
+                result.colour         = triangles[i].color.xyz;
+            }
+        }
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,19 +328,19 @@ inline float3 direct_light_gpu(GPUIntersection        point,
         if (blocked) {
             light_area = float3(0.0f);
 
-            // Soft shadow: 10 jittered samples
+            // Soft shadow: 24 jittered samples
             // Use occluder.triangle_index (not idx) to search around the occluder,
             // matching CPU: shadow_intersection(point.position, direction, inter.triangle_index, ...)
             int occluder_idx = occluder.triangle_index;
             float3 soft = float3(0.0f);
-            for (int s = 0; s < 10; ++s) {
+            for (int s = 0; s < 16; ++s) {
                 float jx = rand_float(seed) * 2.0f - 1.0f;
                 float jy = rand_float(seed) * 2.0f - 1.0f;
                 float jz = rand_float(seed) * 2.0f - 1.0f;
 
-                float3 jitter_dir = surface_light + float3(0.03f * jx,
-                                                           0.03f * jy,
-                                                           0.03f * jz);
+                float3 jitter_dir = surface_light + float3(0.05f * jx,
+                                                           0.05f * jy,
+                                                           0.05f * jz);
                 if (shadow_intersect_gpu(point.position, jitter_dir,
                                          occluder_idx, triangles, triangle_count)) {
                     // fully in shadow — add nothing
@@ -288,11 +348,76 @@ inline float3 direct_light_gpu(GPUIntersection        point,
                     soft += triangles[idx].color.xyz;
                 }
             }
-            light_area += soft / 10.0f;
+            light_area += soft / 16.0f;
         }
     }
 
     return light_area;
+}
+
+// ---------------------------------------------------------------------------
+// indirect_light_one_bounce — 1-bounce global illumination
+// Shoots N_BOUNCES random cosine-weighted rays from the surface and averages.
+// ---------------------------------------------------------------------------
+constant int N_BOUNCES = 4;
+
+inline float3 indirect_light_one_bounce(GPUIntersection point,
+                                         constant GPUTriangle* triangles,
+                                         int triangle_count,
+                                         constant RenderUniforms& uni,
+                                         thread uint& seed,
+                                         thread float& ao_factor)
+{
+    int idx = point.triangle_index;
+    if (idx < 0) { ao_factor = 1.0f; return float3(0.0f); }
+
+    float3 normal = triangles[idx].normal.xyz;
+    float3 accum = float3(0.0f);
+    float ao_accum = 0.0f;
+    float ao_radius = 0.6f; // AO sampling radius
+
+    for (int b = 0; b < N_BOUNCES; ++b) {
+        float3 bounce_dir = cosine_weighted_hemisphere(normal, seed);
+
+        GPUIntersection bounce_hit = simple_intersect_gpu(point.position, bounce_dir,
+                                                           triangles, triangle_count);
+
+        // AO: if hit is close, this point is occluded
+        if (bounce_hit.triangle_index >= 0 && bounce_hit.distance < ao_radius) {
+            ao_accum += 1.0f - (bounce_hit.distance / ao_radius);
+        }
+
+        if (bounce_hit.triangle_index < 0) continue;
+
+        int bounce_idx = bounce_hit.triangle_index;
+        float3 bounce_normal = triangles[bounce_idx].normal.xyz;
+        float3 bounce_to_light = uni.light_pos.xyz - bounce_hit.position;
+        float bounce_r = length(bounce_to_light);
+        float bounce_dot = dot(bounce_to_light, bounce_normal);
+
+        if (bounce_dot <= 0.0f) continue;
+
+        GPUIntersection shadow_test = simple_intersect_gpu(bounce_hit.position,
+                                                            bounce_to_light,
+                                                            triangles, triangle_count);
+        if (shadow_test.triangle_index >= 0 &&
+            shadow_test.distance < 1.0f &&
+            shadow_test.triangle_index != bounce_idx)
+            continue;
+
+        float bounce_area = 4.0f * M_PI_F * bounce_r * bounce_r;
+        float3 bounce_direct = (bounce_dot / bounce_area) * uni.light_colour.xyz;
+
+        accum += triangles[bounce_idx].color.xyz * bounce_direct;
+    }
+
+    // AO: 0 = fully occluded, 1 = fully open
+    ao_factor = clamp(1.0f - 0.8f * ao_accum / float(N_BOUNCES), 0.30f, 1.0f);
+
+    // Clamp indirect to prevent fireflies
+    float3 result = accum / float(N_BOUNCES);
+    result = min(result, float3(0.35f));
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,8 +438,8 @@ kernel void raytracer_kernel(
 
     if (x >= (uint)sw || y >= (uint)sh || sample_idx >= 9u) return;
 
-    // --- Seed ---
-    uint seed = (x * 1000u + y) * 9u + sample_idx + 1u;
+    // --- Seed --- use multiple PCG rounds for better decorrelation
+    uint seed = pcg_hash(x + pcg_hash(y + pcg_hash(sample_idx + 1u)));
 
     // --- Rotation matrix (yaw around Y axis) ---
     // GLM mat3 col-major: col0=(cos,0,-sin), col1=(0,1,0), col2=(sin,0,cos)
@@ -333,9 +458,6 @@ kernel void raytracer_kernel(
                     * (uni.focal - uni.camera_pos.z) / uni.f;
 
     // --- Anti-aliasing sub-sample grid (3×3, stratified jitter) ---
-    // Divide [-8, 8] into 3 equal strata of width 16/3 each.
-    // Each sample falls uniformly within its stratum — no gaps, no overlap.
-    // Total spread stays ±8 pixels so depth-of-field effect is unchanged.
     int a_idx = int(sample_idx) / 3;   // 0, 1, 2
     int b_idx = int(sample_idx) % 3;   // 0, 1, 2
 
@@ -400,14 +522,36 @@ kernel void raytracer_kernel(
                                                  seed);
             }
 
-            light_area = 0.5f * (uni.indirect_light.xyz +
-                                 (light_area + mirror_shadow) / 2.0f);
+            light_area = 0.22f * uni.indirect_light.xyz +
+                                 (light_area + mirror_shadow) / 2.0f;
+
+            // Add indirect GI for the reflected surface
+            if (mirror_isec.triangle_index >= 0) {
+                float mirror_ao;
+                float3 mirror_indirect = indirect_light_one_bounce(
+                    mirror_isec, triangles, uni.triangle_count, uni, seed, mirror_ao);
+                light_area += 0.35f * mirror_indirect;
+            }
         } else {
-            light_area = 0.5f * (uni.indirect_light.xyz + light_area);
+            light_area = 0.22f * uni.indirect_light.xyz + light_area;
+
+            // Add 1-bounce indirect illumination (global illumination / colour bleeding)
+            float ao;
+            float3 indirect = indirect_light_one_bounce(
+                intersection, triangles, uni.triangle_count, uni, seed, ao);
+            light_area += 0.35f * indirect;
+
+            // Apply ambient occlusion
+            light_area *= ao;
         }
 
         pixel_colour = light_area * intersection.colour;
     }
+
+    // --- Tone mapping (extended Reinhard with white point) + gamma correction ---
+    float Lw = 2.0f; // white point — values above this compress to near-white
+    pixel_colour = pixel_colour * (1.0f + pixel_colour / (Lw * Lw)) / (1.0f + pixel_colour);
+    pixel_colour = pow(clamp(pixel_colour, 0.0f, 1.0f), 1.0f / 2.2f);
 
     // --- Write output ---
     uint out_idx = (y * uint(sw) + x) * 9u + sample_idx;
