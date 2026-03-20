@@ -494,9 +494,22 @@ kernel void raytracer_kernel(
     float3 pixel_colour = float3(0.0f);
 
     if (intersection.triangle_index >= 0) {
-        // If we hit a light source triangle, return its emission directly
+        // If we hit a light source triangle, render emissive with glow
         if (intersection.triangle_index >= uni.light_tri_start) {
-            pixel_colour = float3(1.0f);  // white emissive
+            // Light source center (in post-transform space)
+            float3 light_center = uni.light_corner.xyz
+                                + 0.5f * uni.light_edge_u.xyz
+                                + 0.5f * uni.light_edge_v.xyz;
+            float3 to_center = intersection.position - light_center;
+            // Normalize distance by half-diagonal of the light rectangle
+            float half_diag = 0.5f * length(uni.light_edge_u.xyz + uni.light_edge_v.xyz);
+            float d_norm = length(to_center) / half_diag;
+
+            // Core emission: brighter in the center, slight falloff at edges
+            float core = 1.0f - 0.25f * d_norm * d_norm;
+            // Warm tint: center is slightly warm white
+            float3 warm_white = float3(1.0f, 0.97f, 0.92f);
+            pixel_colour = core * warm_white;
         } else {
         float3 light_area = direct_light_gpu(intersection,
                                              triangles,
@@ -550,11 +563,64 @@ kernel void raytracer_kernel(
         }
 
         pixel_colour = light_area * intersection.colour;
+
+        // --- Light glow on ceiling: proximity bloom effect ---
+        // Ceiling triangles (index 6-7) near the light get an extra glow
+        int hit_idx = intersection.triangle_index;
+        if (hit_idx == 6 || hit_idx == 7) {
+            float3 light_center = uni.light_corner.xyz
+                                + 0.5f * uni.light_edge_u.xyz
+                                + 0.5f * uni.light_edge_v.xyz;
+            float dx = intersection.position.x - light_center.x;
+            float dz = intersection.position.z - light_center.z;
+            float dist_xz = sqrt(dx * dx + dz * dz);
+
+            // Inner bright glow (tight, intense)
+            float inner_sigma = 0.30f;
+            float inner_glow = 1.0f * exp(-dist_xz * dist_xz / (2.0f * inner_sigma * inner_sigma));
+            // Outer soft glow (wide, subtle)
+            float outer_sigma = 0.85f;
+            float outer_glow = 0.25f * exp(-dist_xz * dist_xz / (2.0f * outer_sigma * outer_sigma));
+
+            float3 warm_glow = float3(1.0f, 0.96f, 0.90f);
+            pixel_colour += (inner_glow + outer_glow) * warm_glow;
+        }
+
+        // --- Spotlight concentration effect ---
+        // Surfaces directly below the light receive extra focused illumination
+        {
+            float3 light_center = uni.light_corner.xyz
+                                + 0.5f * uni.light_edge_u.xyz
+                                + 0.5f * uni.light_edge_v.xyz;
+            float3 to_surface = intersection.position - light_center;
+            float dist = length(to_surface);
+            float3 to_surface_n = to_surface / max(dist, 0.001f);
+
+            // Light emits primarily downward (light_normal = +y = downward in scene)
+            float cos_angle = dot(to_surface_n, uni.light_normal.xyz);
+            // Spotlight exponent: higher = more focused beam
+            float spot = pow(max(cos_angle, 0.0f), 3.0f);
+            // Distance attenuation
+            float atten = 1.0f / (1.0f + 0.3f * dist * dist);
+            float concentration = 0.18f * spot * atten;
+            pixel_colour += concentration * intersection.colour;
+
+            // Extra bright patch directly below light on floor (index 0-1)
+            if (hit_idx == 0 || hit_idx == 1) {
+                float dx_floor = intersection.position.x - light_center.x;
+                float dz_floor = intersection.position.z - light_center.z;
+                float dist_floor = sqrt(dx_floor * dx_floor + dz_floor * dz_floor);
+                float floor_spot_sigma = 0.4f;
+                float floor_spot = 0.15f * exp(-dist_floor * dist_floor / (2.0f * floor_spot_sigma * floor_spot_sigma));
+                pixel_colour += floor_spot * float3(1.0f, 0.98f, 0.94f);
+            }
+        }
+
         } // end non-light-triangle branch
     }
 
     // --- Tone mapping (extended Reinhard with white point) + gamma correction ---
-    float Lw = 2.0f; // white point — values above this compress to near-white
+    float Lw = 2.5f; // slightly higher white point for brighter scene
     pixel_colour = pixel_colour * (1.0f + pixel_colour / (Lw * Lw)) / (1.0f + pixel_colour);
     pixel_colour = pow(clamp(pixel_colour, 0.0f, 1.0f), 1.0f / 2.2f);
 
