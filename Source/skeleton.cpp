@@ -38,8 +38,8 @@ float yaw = 0.0f * 3.1415926 / 180;
 vec3 camera_pos(0, 0, -zz);
 vec3 light_pos(0, -0.999, -0.5);   // center of area light on ceiling
 float light_radi = 0.3f;
-vec3 light_colour = 28.f * vec3(1, 1, 1);
-vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
+vec3 light_colour = 40.f * vec3(1, 1, 1);
+vec3 indirect_light = 0.2f * vec3( 1, 1, 1 );
 static vec3 anti_aliasing[SCREEN_WIDTH / 3][SCREEN_HEIGHT / 3][9];
 std::vector<Triangle> triangles;
 
@@ -298,6 +298,7 @@ void Draw()
     params.yaw          = yaw;
     params.screen_width  = SCREEN_WIDTH;
     params.screen_height = SCREEN_HEIGHT;
+    params.aperture_radius = 0.0f;   // pinhole camera (no DOF)
 
     std::vector<glm::vec3> pixels(SCREEN_WIDTH * SCREEN_HEIGHT);
     g_metal_renderer->render(params, pixels);
@@ -482,28 +483,11 @@ bool closest_intersection(const vec3& start, const vec3& dir, const vector<Trian
         cloestIntersection.position = start + min * dir;
         cloestIntersection.distance = min;
         cloestIntersection.triangle_index = triangle_index;
-        if (triangle_index == 4 || triangle_index == 5)
-        {
-            reflect_position = start + min * dir;
-            reflect_dir = vec3(-dir[0], dir[1], dir[2]);
-            if (mirror_intersection(reflect_position, reflect_dir, triangles, reflect_intersec))
-            {
-                cloestIntersection.colour = reflect_intersec.colour;
-
-                mirIntersection.triangle_index = reflect_intersec.triangle_index;
-                mirIntersection.position = reflect_intersec.position;
-                mirIntersection.distance = reflect_intersec.distance;
-            }
-            cloestIntersection.is_mirror = true;
-        }
-        else
-        {
-            mirIntersection.triangle_index = triangle_index;
-            mirIntersection.position = start + min * dir;
-            mirIntersection.distance = min;
-            cloestIntersection.colour = triangles[triangle_index].color;
-            cloestIntersection.is_mirror = false;
-        }
+        mirIntersection.triangle_index = triangle_index;
+        mirIntersection.position = start + min * dir;
+        mirIntersection.distance = min;
+        cloestIntersection.colour = triangles[triangle_index].color;
+        cloestIntersection.is_mirror = false;
         return true;
     }
     else
@@ -581,10 +565,7 @@ bool shadow_intersection(const vec3& start, const vec3& dir, int triangle_id, In
     bool flag = false;
     float t_hit, u_hit, v_hit;
 
-    int i_start = std::max(0, triangle_id - 2);
-    int i_end = std::min((int)triangles.size(), triangle_id + 3);
-
-    for (int i = i_start; i < i_end; i++)
+    for (size_t i = 0; i < triangles.size(); i++)
     {
         vec3 v0 = triangles[i].v0;
         vec3 v1 = triangles[i].v1;

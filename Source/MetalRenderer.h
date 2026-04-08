@@ -19,6 +19,7 @@ struct RenderParams {
     float yaw;
     int screen_width;
     int screen_height;
+    float aperture_radius = 0.0f;  // thin-lens DOF radius (0 = pinhole)
 };
 
 class MetalRenderer {
@@ -28,6 +29,8 @@ public:
     void uploadTriangles(const std::vector<Triangle>& tris);
     // Renders and fills pixels (size = width*height, row-major)
     void render(const RenderParams& params, std::vector<glm::vec3>& pixels);
+    // Reset temporal accumulation (call when camera/light moves)
+    void resetAccumulation();
 private:
     void* _device;
     void* _commandQueue;
@@ -36,4 +39,12 @@ private:
     void* _uniformsBuffer;
     void* _outputBuffer;
     int _width, _height;
+    int _frameNumber = 0;
+    // Temporal accumulation
+    std::vector<glm::vec3> _accumBuffer;
+    int _accumCount = 0;
+    // Previous params for change detection
+    float _prevYaw = 0.0f;
+    glm::vec3 _prevCameraPos{0};
+    glm::vec3 _prevLightPos{0};
 };

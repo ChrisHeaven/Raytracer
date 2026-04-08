@@ -3,6 +3,7 @@
 #include <simd/simd.h>
 #include <cstring>
 #include <cstdio>
+#include <algorithm>
 #include "MetalRenderer.h"
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,8 @@ struct RenderUniforms {
     int light_tri_start;
     int screen_width;
     int screen_height;
+    int frame_number;
+    float aperture_radius;
 };
 
 // ---------------------------------------------------------------------------
@@ -177,6 +180,15 @@ void MetalRenderer::uploadTriangles(const std::vector<Triangle>& tris)
 }
 
 // ---------------------------------------------------------------------------
+// resetAccumulation
+// ---------------------------------------------------------------------------
+void MetalRenderer::resetAccumulation()
+{
+    _accumCount = 0;
+    _accumBuffer.clear();
+}
+
+// ---------------------------------------------------------------------------
 // render
 // ---------------------------------------------------------------------------
 void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& pixels)
@@ -193,6 +205,19 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
             fprintf(stderr, "[MetalRenderer] render() called before initialisation or uploadTriangles().\n");
             return;
         }
+
+        // Detect parameter changes → reset accumulation
+        if (params.camera_pos != _prevCameraPos ||
+            params.light_pos != _prevLightPos ||
+            params.yaw != _prevYaw) {
+            _accumCount = 0;
+            _accumBuffer.clear();
+            _prevCameraPos = params.camera_pos;
+            _prevLightPos = params.light_pos;
+            _prevYaw = params.yaw;
+        }
+
+        _frameNumber++;
 
         // 1. Fill uniforms
         RenderUniforms uni;
@@ -212,6 +237,8 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
         uni.light_tri_start = params.light_tri_start;
         uni.screen_width   = params.screen_width;
         uni.screen_height  = params.screen_height;
+        uni.frame_number   = _frameNumber;
+        uni.aperture_radius = params.aperture_radius;
 
         // 2. Copy uniforms into shared buffer
         memcpy(uniBuf.contents, &uni, sizeof(RenderUniforms));
@@ -240,7 +267,10 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
         // 5. Read back: layout is [pixelIndex * 9 + sampleIndex] → simd_float4
         const simd_float4* buf = reinterpret_cast<const simd_float4*>(outBuf.contents);
 
-        pixels.resize((size_t)_width * _height);
+        size_t npixels = (size_t)_width * _height;
+        pixels.resize(npixels);
+
+        // Average the 9 AA samples for this frame
         for (int y = 0; y < _height; ++y) {
             for (int x = 0; x < _width; ++x) {
                 int pixelIdx = y * _width + x;
@@ -254,5 +284,21 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
                 pixels[pixelIdx] = glm::vec3(r / 9.0f, g / 9.0f, b / 9.0f);
             }
         }
+
+        // 6. Temporal accumulation (exponential moving average, cap at 64 frames)
+        _accumCount++;
+        if (_accumCount == 1) {
+            _accumBuffer = pixels;
+        } else {
+            int cap = std::min(_accumCount, 64);
+            float w_new = 1.0f / float(cap);
+            float w_old = 1.0f - w_new;
+            for (size_t i = 0; i < npixels; ++i) {
+                _accumBuffer[i] = w_old * _accumBuffer[i] + w_new * pixels[i];
+            }
+        }
+
+        // Return accumulated result
+        pixels = _accumBuffer;
     }
 }
