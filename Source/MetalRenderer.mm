@@ -206,7 +206,7 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
             return;
         }
 
-        // Detect parameter changes → reset accumulation but blend smoothly
+        // Detect parameter changes → reset accumulation
         if (params.camera_pos != _prevCameraPos ||
             params.light_pos != _prevLightPos ||
             params.yaw != _prevYaw) {
