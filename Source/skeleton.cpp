@@ -4,6 +4,7 @@ No recorded activity before January 30, 2017
 
 #include <cstddef>
 #include <iostream>
+#include <fstream>
 #include <glm/glm.hpp>
 #include <SDL/SDL.h>
 #include "SDLauxiliary.h"
@@ -15,27 +16,36 @@ No recorded activity before January 30, 2017
 #include <stdlib.h>
 #include <stdio.h>
 
+#ifdef USE_METAL
+#include "MetalRenderer.h"
+#endif
+
 using namespace std;
 using glm::vec3;
 using glm::mat3;
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
-const int SCREEN_WIDTH = 300;
-const int SCREEN_HEIGHT = 300;
+const int SCREEN_WIDTH = 600;
+const int SCREEN_HEIGHT = 600;
 SDL_Surface* screen;
+std::vector<glm::vec3> g_last_pixels; // Store last rendered pixels for screenshot
 int t;
 float f = 1.0;
 float focal = -0.5;
 float zz = 3.0;
 float yaw = 0.0f * 3.1415926 / 180;
 vec3 camera_pos(0, 0, -zz);
-vec3 light_pos(0, -0.5, -0.7);
+vec3 light_pos(0, -0.999, -0.5);   // center of area light on ceiling
 float light_radi = 0.3f;
-vec3 light_colour = 14.f * vec3(1, 1, 1);
-vec3 indirect_light = 0.5f * vec3( 1, 1, 1 );
-static vec3 anti_aliasing[SCREEN_WIDTH / 2][SCREEN_HEIGHT / 2][4];
+vec3 light_colour = 50.f * vec3(1.0, 0.93, 0.82);
+vec3 indirect_light = 0.15f * vec3( 1.0, 0.93, 0.82 );
+static vec3 anti_aliasing[SCREEN_WIDTH / 3][SCREEN_HEIGHT / 3][9];
 std::vector<Triangle> triangles;
+
+#ifdef USE_METAL
+MetalRenderer* g_metal_renderer = nullptr;
+#endif
 
 struct Intersection
 {
@@ -92,6 +102,71 @@ inline bool RayTriangleIntersection(const vec3& orig,
     return t > 0.0f;
 }
 
+// Manual BMP writer from vec3 pixel array (row-major, top-to-bottom)
+static void SaveBMPFromPixels(const char* path, const std::vector<glm::vec3>& pixels, int w, int h)
+{
+    int row_pad = (4 - (w * 3) % 4) % 4;
+    int img_size = (w * 3 + row_pad) * h;
+    int file_size = 54 + img_size;
+
+    unsigned char header[54] = {};
+    header[0] = 'B'; header[1] = 'M';
+    header[2] = file_size; header[3] = file_size >> 8;
+    header[4] = file_size >> 16; header[5] = file_size >> 24;
+    header[10] = 54;
+    header[14] = 40;
+    header[18] = w; header[19] = w >> 8; header[20] = w >> 16; header[21] = w >> 24;
+    header[22] = h; header[23] = h >> 8; header[24] = h >> 16; header[25] = h >> 24;
+    header[26] = 1;
+    header[28] = 24;
+    header[34] = img_size; header[35] = img_size >> 8;
+    header[36] = img_size >> 16; header[37] = img_size >> 24;
+
+    std::ofstream f(path, std::ios::binary);
+    if (!f) { cerr << "SaveBMP: cannot open " << path << endl; return; }
+
+    f.write(reinterpret_cast<char*>(header), 54);
+
+    unsigned char pad[3] = {0, 0, 0};
+    // BMP stores bottom-to-top
+    for (int y = h - 1; y >= 0; --y) {
+        for (int x = 0; x < w; ++x) {
+            const glm::vec3& c = pixels[y * w + x];
+            unsigned char r = (unsigned char)glm::clamp(c.r * 255.0f, 0.0f, 255.0f);
+            unsigned char g = (unsigned char)glm::clamp(c.g * 255.0f, 0.0f, 255.0f);
+            unsigned char b = (unsigned char)glm::clamp(c.b * 255.0f, 0.0f, 255.0f);
+            unsigned char bgr[3] = {b, g, r};
+            f.write(reinterpret_cast<char*>(bgr), 3);
+        }
+        if (row_pad) f.write(reinterpret_cast<char*>(pad), row_pad);
+    }
+
+    f.close();
+    cout << "Screenshot saved: " << path << " (" << w << "x" << h << ")" << endl;
+}
+
+// Fallback BMP writer from SDL surface (for CPU path)
+static void SaveBMP(const char* path, SDL_Surface* surf)
+{
+    if (!surf) { cerr << "SaveBMP: null surface" << endl; return; }
+
+    int w = surf->w, h = surf->h;
+    std::vector<glm::vec3> pixels(w * h);
+
+    if (SDL_MUSTLOCK(surf)) SDL_LockSurface(surf);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            Uint32 pixel = *((Uint32*)((Uint8*)surf->pixels + y * surf->pitch) + x);
+            Uint8 r, g, b;
+            SDL_GetRGB(pixel, surf->format, &r, &g, &b);
+            pixels[y * w + x] = glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f);
+        }
+    }
+    if (SDL_MUSTLOCK(surf)) SDL_UnlockSurface(surf);
+
+    SaveBMPFromPixels(path, pixels, w, h);
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -100,13 +175,41 @@ int main(int argc, char* argv[])
 
     LoadTestModel(triangles);
 
+#ifdef USE_METAL
+    g_metal_renderer = new MetalRenderer(SCREEN_WIDTH, SCREEN_HEIGHT);
+    g_metal_renderer->uploadTriangles(triangles);
+    cout << "Using Metal GPU renderer" << endl;
+#endif
+
+    int frame_count = 0;
     while (NoQuitMessageSDL())
     {
         Update();
         Draw();
+        frame_count++;
+
+        if (frame_count == 3) {  // Save after a few warm-up frames
+#ifdef USE_METAL
+            if (!g_last_pixels.empty())
+                SaveBMPFromPixels("screenshot.bmp", g_last_pixels, SCREEN_WIDTH, SCREEN_HEIGHT);
+            else
+#endif
+                SaveBMP("screenshot.bmp", screen);
+        }
     }
 
-    SDL_SaveBMP( screen, "screenshot.bmp" );
+    // Save again on exit with latest frame
+#ifdef USE_METAL
+    if (!g_last_pixels.empty())
+        SaveBMPFromPixels("screenshot.bmp", g_last_pixels, SCREEN_WIDTH, SCREEN_HEIGHT);
+    else
+#endif
+        SaveBMP("screenshot.bmp", screen);
+
+#ifdef USE_METAL
+    delete g_metal_renderer;
+#endif
+
     return 0;
 }
 
@@ -177,17 +280,46 @@ void Draw()
     if (SDL_MUSTLOCK(screen))
         SDL_LockSurface(screen);
 
-    pthread_t tid[4];
-    int area_id[4];
+#ifdef USE_METAL
+    RenderParams params;
+    params.camera_pos   = camera_pos;
+    params.light_pos    = light_pos;
+    params.light_colour = light_colour;
+    params.indirect_light = indirect_light;
+    // Area light: rectangle on ceiling (0.4 x 0.3, centered at (0, -0.999, -0.5))
+    params.light_corner = vec3(-0.2f, -0.999f, -0.65f);
+    params.light_edge_u = vec3(0.4f, 0.0f, 0.0f);
+    params.light_edge_v = vec3(0.0f, 0.0f, 0.3f);
+    params.light_normal = vec3(0.0f, 1.0f, 0.0f);  // pointing down (+y is down in scene)
+    params.light_area   = 0.4f * 0.3f;              // 0.12
+    params.light_tri_start = 30;                     // first light triangle index
+    params.focal        = focal;
+    params.f            = f;
+    params.yaw          = yaw;
+    params.screen_width  = SCREEN_WIDTH;
+    params.screen_height = SCREEN_HEIGHT;
+    params.aperture_radius = 0.0f;   // pinhole camera (no DOF)
 
-    for (int i = 0; i < 4; i++)
+    std::vector<glm::vec3> pixels(SCREEN_WIDTH * SCREEN_HEIGHT);
+    g_metal_renderer->render(params, pixels);
+    g_last_pixels = pixels; // Store for screenshot
+
+    for (int y = 0; y < SCREEN_HEIGHT; y++)
+        for (int x = 0; x < SCREEN_WIDTH; x++)
+            PutPixelSDL(screen, x, y, pixels[y * SCREEN_WIDTH + x]);
+#else
+    pthread_t tid[9];
+    int area_id[9];
+
+    for (int i = 0; i < 9; i++)
     {
         area_id[i] = i;
         pthread_create(&tid[i], NULL, img_thread, &area_id[i]);
     }
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 9; i++)
         pthread_join(tid[i], NULL);
+#endif
 
     if (SDL_MUSTLOCK(screen))
         SDL_UnlockSurface(screen);
@@ -214,34 +346,23 @@ void *img_thread(void *arg)
 
     switch (area)
     {
-    case 0:
-        x_value = 0;
-        y_value = 0;
-        break;
-
-    case 1:
-        x_value = SCREEN_WIDTH / 2;
-        y_value = 0;
-        break;
-
-    case 2:
-        x_value = 0;
-        y_value = SCREEN_HEIGHT / 2;
-        break;
-
-    case 3:
-        x_value = SCREEN_WIDTH / 2;
-        y_value = SCREEN_HEIGHT / 2;
-        break;
-
+    case 0: x_value = 0;                y_value = 0;                break;
+    case 1: x_value = SCREEN_WIDTH / 3; y_value = 0;                break;
+    case 2: x_value = SCREEN_WIDTH / 3 * 2; y_value = 0;           break;
+    case 3: x_value = 0;                y_value = SCREEN_HEIGHT / 3; break;
+    case 4: x_value = SCREEN_WIDTH / 3; y_value = SCREEN_HEIGHT / 3; break;
+    case 5: x_value = SCREEN_WIDTH / 3 * 2; y_value = SCREEN_HEIGHT / 3; break;
+    case 6: x_value = 0;                y_value = SCREEN_HEIGHT / 3 * 2; break;
+    case 7: x_value = SCREEN_WIDTH / 3; y_value = SCREEN_HEIGHT / 3 * 2; break;
+    case 8: x_value = SCREEN_WIDTH / 3 * 2; y_value = SCREEN_HEIGHT / 3 * 2; break;
     default:
         printf("ERROR!\n");
         break;
     }
 
-    for (int i = 0; i < SCREEN_HEIGHT / 2; i++)
+    for (int i = 0; i < SCREEN_HEIGHT / 3; i++)
     {
-        for (int j = 0; j < SCREEN_WIDTH / 2; j++)
+        for (int j = 0; j < SCREEN_WIDTH / 3; j++)
         {
             x = j + x_value;
             y = i + y_value;
@@ -362,28 +483,11 @@ bool closest_intersection(const vec3& start, const vec3& dir, const vector<Trian
         cloestIntersection.position = start + min * dir;
         cloestIntersection.distance = min;
         cloestIntersection.triangle_index = triangle_index;
-        if (triangle_index == 4 || triangle_index == 5)
-        {
-            reflect_position = start + min * dir;
-            reflect_dir = vec3(-dir[0], dir[1], dir[2]);
-            if (mirror_intersection(reflect_position, reflect_dir, triangles, reflect_intersec))
-            {
-                cloestIntersection.colour = reflect_intersec.colour;
-
-                mirIntersection.triangle_index = reflect_intersec.triangle_index;
-                mirIntersection.position = reflect_intersec.position;
-                mirIntersection.distance = reflect_intersec.distance;
-            }
-            cloestIntersection.is_mirror = true;
-        }
-        else
-        {
-            mirIntersection.triangle_index = triangle_index;
-            mirIntersection.position = start + min * dir;
-            mirIntersection.distance = min;
-            cloestIntersection.colour = triangles[triangle_index].color;
-            cloestIntersection.is_mirror = false;
-        }
+        mirIntersection.triangle_index = triangle_index;
+        mirIntersection.position = start + min * dir;
+        mirIntersection.distance = min;
+        cloestIntersection.colour = triangles[triangle_index].color;
+        cloestIntersection.is_mirror = false;
         return true;
     }
     else
@@ -461,10 +565,7 @@ bool shadow_intersection(const vec3& start, const vec3& dir, int triangle_id, In
     bool flag = false;
     float t_hit, u_hit, v_hit;
 
-    int i_start = std::max(0, triangle_id - 2);
-    int i_end = std::min((int)triangles.size(), triangle_id + 3);
-
-    for (int i = i_start; i < i_end; i++)
+    for (size_t i = 0; i < triangles.size(); i++)
     {
         vec3 v0 = triangles[i].v0;
         vec3 v1 = triangles[i].v1;
@@ -497,7 +598,7 @@ bool mirror_intersection(const vec3& start, const vec3& dir, const vector<Triang
         v2 = triangles[i].v2;
 
         float t_hit, u_hit, v_hit;
-        if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.03f)
+        if (RayTriangleIntersection(start, dir, v0, v1, v2, t_hit, u_hit, v_hit) && t_hit > 0.001f)
         {
             if (!flag)
             {
