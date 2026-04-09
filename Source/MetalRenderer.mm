@@ -290,7 +290,7 @@ void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& p
         if (_accumCount == 1) {
             _accumBuffer = pixels;
         } else {
-            int cap = std::min(_accumCount, 64);
+            int cap = std::min(_accumCount, 256);
             float w_new = 1.0f / float(cap);
             float w_old = 1.0f - w_new;
             for (size_t i = 0; i < npixels; ++i) {

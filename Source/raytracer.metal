@@ -364,8 +364,7 @@ kernel void raytracer_kernel(
                                       triangles, uni.triangle_count,
                                       uni, seed);
 
-    // --- Exposure + ACES Filmic tone mapping + gamma ---
-    pixel_colour *= 1.2f;
+    // --- ACES Filmic tone mapping + gamma ---
     {
         float3 x = pixel_colour;
         float a = 2.51f;

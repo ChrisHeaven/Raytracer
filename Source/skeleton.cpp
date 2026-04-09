@@ -38,7 +38,7 @@ float yaw = 0.0f * 3.1415926 / 180;
 vec3 camera_pos(0, 0, -zz);
 vec3 light_pos(0, -0.999, -0.5);   // center of area light on ceiling
 float light_radi = 0.3f;
-vec3 light_colour = 80.f * vec3(1.0, 0.93, 0.82);
+vec3 light_colour = 60.f * vec3(1.0, 0.93, 0.82);
 vec3 indirect_light = 0.15f * vec3( 1.0, 0.93, 0.82 );
 static vec3 anti_aliasing[SCREEN_WIDTH / 3][SCREEN_HEIGHT / 3][9];
 std::vector<Triangle> triangles;
