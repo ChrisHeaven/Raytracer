@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.5.1",
+  "checkpoint_id": "75f9f7a80724",
+  "strategy": "manual-commit",
+  "branch": "5.0",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "Source/raytracer.metal",
+    "Source/skeleton.cpp",
+    "screenshot.bmp",
+    "screenshots/path_tracing_v4.png"
+  ],
+  "sessions": [
+    {
+      "metadata": "/75/f9f7a80724/0/metadata.json",
+      "transcript": "/75/f9f7a80724/0/full.jsonl",
+      "content_hash": "/75/f9f7a80724/0/content_hash.txt",
+      "prompt": "/75/f9f7a80724/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 39341203,
+    "cache_creation_tokens": 1942951,
+    "cache_read_tokens": 37397886,
+    "output_tokens": 82976,
+    "api_call_count": 304
+  }
+}
