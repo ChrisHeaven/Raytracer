@@ -38,11 +38,10 @@ struct GPUIntersection {
     float  distance;
     int    triangle_index;
     float3 colour;
-    bool   is_mirror;
 };
 
 // ---------------------------------------------------------------------------
-// PCG-based random number generator (much better than LCG for spatial seeds)
+// PCG-based random number generator
 // ---------------------------------------------------------------------------
 inline uint pcg_hash(uint input) {
     uint state = input * 747796405u + 2891336453u;
@@ -61,7 +60,6 @@ inline float rand_float(thread uint& seed) {
 
 // ---------------------------------------------------------------------------
 // Möller–Trumbore ray-triangle intersection
-// Returns true and writes t if the ray hits the triangle.
 // ---------------------------------------------------------------------------
 inline bool ray_triangle_intersect(float3 orig,
                                    float3 dir,
@@ -71,18 +69,14 @@ inline bool ray_triangle_intersect(float3 orig,
                                    thread float& t)
 {
     const float epsilon = 1e-6f;
-
     float3 e1 = v1 - v0;
     float3 e2 = v2 - v0;
-
     float3 pvec = cross(dir, e2);
     float  det  = dot(e1, pvec);
-
     if (abs(det) < epsilon) return false;
 
     float  invDet = 1.0f / det;
     float3 tvec   = orig - v0;
-
     float u = dot(tvec, pvec) * invDet;
     if (u < 0.0f || u > 1.0f) return false;
 
@@ -104,7 +98,6 @@ inline float3 cosine_weighted_hemisphere(float3 normal, thread uint& seed) {
     float cos_theta = sqrt(1.0f - r2);
     float sin_theta = sqrt(r2);
 
-    // Build orthonormal basis (TBN) from normal
     float3 w = normal;
     float3 helper = abs(w.x) > 0.9f ? float3(0, 1, 0) : float3(1, 0, 0);
     float3 u = normalize(cross(helper, w));
@@ -114,32 +107,28 @@ inline float3 cosine_weighted_hemisphere(float3 normal, thread uint& seed) {
 }
 
 // ---------------------------------------------------------------------------
-// Sample a random point on the rectangular area light (stratified 2×2)
+// Sample a random point on the rectangular area light
 // ---------------------------------------------------------------------------
-inline float3 sample_area_light(constant RenderUniforms& uni,
-                                 thread uint& seed,
-                                 int stratum_u, int stratum_v)
+inline float3 sample_area_light_uniform(constant RenderUniforms& uni,
+                                         thread uint& seed)
 {
-    // Stratified: divide [0,1]² into 2×2 cells
-    float u = (float(stratum_u) + rand_float(seed)) * 0.5f;
-    float v = (float(stratum_v) + rand_float(seed)) * 0.5f;
+    float u = rand_float(seed);
+    float v = rand_float(seed);
     return uni.light_corner.xyz + u * uni.light_edge_u.xyz + v * uni.light_edge_v.xyz;
 }
 
 // ---------------------------------------------------------------------------
-// simple_intersect_gpu — lightweight closest-hit, no mirror logic
-// Used for bounce rays and bounce shadow rays.
+// trace_ray — find closest hit among all triangles
 // ---------------------------------------------------------------------------
-inline GPUIntersection simple_intersect_gpu(float3 orig,
-                                             float3 dir,
-                                             constant GPUTriangle* triangles,
-                                             int triangle_count)
+inline GPUIntersection trace_ray(float3 orig,
+                                  float3 dir,
+                                  constant GPUTriangle* triangles,
+                                  int triangle_count)
 {
     GPUIntersection result;
     result.distance       = 1e30f;
     result.triangle_index = -1;
     result.colour         = float3(0.0f);
-    result.is_mirror      = false;
     result.position       = float3(0.0f);
 
     for (int i = 0; i < triangle_count; ++i) {
@@ -162,22 +151,19 @@ inline GPUIntersection simple_intersect_gpu(float3 orig,
 }
 
 // ---------------------------------------------------------------------------
-// mirror_intersect_gpu
-// Scans all triangles and returns the closest hit (t > 0.03).
+// shadow_test — any-hit test (returns true if blocked)
 // ---------------------------------------------------------------------------
-inline GPUIntersection mirror_intersect_gpu(float3 orig,
-                                            float3 dir,
-                                            constant GPUTriangle* triangles,
-                                            int triangle_count)
+inline bool shadow_test(float3 orig,
+                         float3 dir,
+                         float  max_dist,
+                         int    exclude_idx,
+                         int    light_tri_start,
+                         constant GPUTriangle* triangles,
+                         int triangle_count)
 {
-    GPUIntersection result;
-    result.distance       = 1e30f;
-    result.triangle_index = -1;
-    result.colour         = float3(0.0f);
-    result.is_mirror      = false;
-    result.position       = float3(0.0f);
-
     for (int i = 0; i < triangle_count; ++i) {
+        if (i >= light_tri_start) continue;  // skip light geometry
+        if (i == exclude_idx) continue;
         float t = 0.0f;
         if (ray_triangle_intersect(orig, dir,
                                    triangles[i].v0.xyz,
@@ -185,255 +171,120 @@ inline GPUIntersection mirror_intersect_gpu(float3 orig,
                                    triangles[i].v2.xyz,
                                    t))
         {
-            if (t > 0.001f && t < result.distance) {
-                result.distance       = t;
-                result.triangle_index = i;
-                result.position       = orig + dir * t;
-                result.colour         = triangles[i].color.xyz;
-            }
-        }
-    }
-
-    return result;
-}
-
-// ---------------------------------------------------------------------------
-// shadow_intersect_gpu
-// Tests ALL triangles for any occlusion.
-// ---------------------------------------------------------------------------
-inline bool shadow_intersect_gpu(float3 orig,
-                                 float3 dir,
-                                 int    id,
-                                 constant GPUTriangle* triangles,
-                                 int triangle_count)
-{
-    for (int i = 0; i < triangle_count; ++i) {
-        float t = 0.0f;
-        if (ray_triangle_intersect(orig, dir,
-                                   triangles[i].v0.xyz,
-                                   triangles[i].v1.xyz,
-                                   triangles[i].v2.xyz,
-                                   t))
-        {
-            if (t > 0.0f) return true;
+            if (t > 0.001f && t < max_dist) return true;
         }
     }
     return false;
 }
 
 // ---------------------------------------------------------------------------
-// closest_intersect_gpu
+// Path Tracing with Next Event Estimation (NEE)
+//
+// Each call traces ONE complete light path from the given ray origin/direction,
+// bouncing up to MAX_DEPTH times. At each bounce:
+//   1. NEE: sample a point on the area light, compute direct illumination
+//   2. Sample a random bounce direction (cosine-weighted for diffuse,
+//      perfect reflection for mirror surfaces)
+//   3. Russian Roulette after depth >= 3
 // ---------------------------------------------------------------------------
-inline GPUIntersection closest_intersect_gpu(float3 orig,
-                                             float3 dir,
-                                             constant GPUTriangle* triangles,
-                                             int triangle_count,
-                                             int light,              // 0 = normal, 1 = shadow ray
-                                             constant RenderUniforms& uni)
+constant int MAX_DEPTH = 8;
+
+inline float3 path_trace(float3 ray_origin,
+                           float3 ray_dir,
+                           constant GPUTriangle* triangles,
+                           int triangle_count,
+                           constant RenderUniforms& uni,
+                           thread uint& seed)
 {
-    GPUIntersection result;
-    result.distance       = 1e30f;
-    result.triangle_index = -1;
-    result.colour         = float3(0.0f);
-    result.is_mirror      = false;
-    result.position       = float3(0.0f);
+    float3 radiance   = float3(0.0f);
+    float3 throughput = float3(1.0f);
 
-    // --- Triangle loop ---
-    // Always test all triangles for primary and shadow rays.
-    // The original CPU front-plane test caused seam blurring: AA jitter made
-    // some sub-samples hit the front plane (ignore=0, all 30 tris) and others
-    // miss it (ignore=1, only 10 tris), giving inconsistent results per pixel.
-    for (int i = 0; i < triangle_count; ++i) {
-        float t = 0.0f;
-        if (ray_triangle_intersect(orig, dir,
-                                   triangles[i].v0.xyz,
-                                   triangles[i].v1.xyz,
-                                   triangles[i].v2.xyz,
-                                   t))
-        {
-            if (t > 0.03f && t < result.distance) {
-                result.distance       = t;
-                result.triangle_index = i;
-                result.position       = orig + dir * t;
+    float3 cur_origin = ray_origin;
+    float3 cur_dir    = ray_dir;
+
+    for (int depth = 0; depth < MAX_DEPTH; ++depth) {
+
+        // --- Trace ray ---
+        GPUIntersection hit = trace_ray(cur_origin, cur_dir, triangles, triangle_count);
+
+        // Miss → black background
+        if (hit.triangle_index < 0) break;
+
+        int    idx    = hit.triangle_index;
+        float3 normal = triangles[idx].normal.xyz;
+        float3 albedo = triangles[idx].color.xyz;
+
+        // --- Hit light source → add emission and stop ---
+        if (idx >= uni.light_tri_start) {
+            // Only count direct light hit on depth 0 (NEE handles the rest)
+            if (depth == 0) {
+                float3 warm_white = float3(1.0f, 0.97f, 0.92f);
+                radiance += throughput * warm_white;
             }
+            break;
         }
-    }
 
-    // --- Post-process hit ---
-    if (result.triangle_index >= 0) {
-        int idx = result.triangle_index;
-
+        // --- Mirror surface (tall block front face) ---
         if (idx == 20 || idx == 21) {
-            // Mirror surface on tall block front face
             float3 n = triangles[idx].normal.xyz;
-            float3 reflect_dir = dir - 2.0f * dot(dir, n) * n;
-            GPUIntersection mirror_hit = simple_intersect_gpu(result.position,
-                                                               reflect_dir,
-                                                               triangles,
-                                                               triangle_count);
-            if (mirror_hit.triangle_index >= 0) {
-                result.colour = mirror_hit.colour;
-            } else {
-                result.colour = float3(0.05f); // dark if reflection misses
-            }
-            result.is_mirror = true;
-        } else {
-            result.colour    = triangles[idx].color.xyz;
-            result.is_mirror = false;
+            cur_dir = cur_dir - 2.0f * dot(cur_dir, n) * n;
+            cur_origin = hit.position;
+            // Mirror doesn't attenuate throughput, just reflects
+            continue;
         }
-    }
 
-    return result;
-}
+        // --- Make sure normal faces the incoming ray ---
+        if (dot(normal, cur_dir) > 0.0f) {
+            normal = -normal;
+        }
 
-// ---------------------------------------------------------------------------
-// direct_light_gpu — area light sampling with Blinn-Phong specular
-// ---------------------------------------------------------------------------
-constant int N_LIGHT_SAMPLES = 8;
+        // --- Next Event Estimation (NEE): sample area light directly ---
+        {
+            float3 light_sample = sample_area_light_uniform(uni, seed);
+            float3 to_light = light_sample - hit.position;
+            float  dist     = length(to_light);
+            float3 to_light_n = to_light / dist;
 
-inline float3 direct_light_gpu(GPUIntersection        point,
-                                constant GPUTriangle*  triangles,
-                                int                    triangle_count,
-                                constant RenderUniforms& uni,
-                                thread uint&           seed,
-                                float3                 view_dir)
-{
-    int    idx    = point.triangle_index;
-    float3 normal = triangles[idx].normal.xyz;
-    float3 light_n = uni.light_normal.xyz;
+            float cos_surface = dot(to_light_n, normal);
+            float cos_light   = dot(-to_light_n, uni.light_normal.xyz);
 
-    float3 diffuse_accum  = float3(0.0f);
-    float3 specular_accum = float3(0.0f);
+            if (cos_surface > 0.0f && cos_light > 0.0f) {
+                // Shadow test
+                bool blocked = shadow_test(hit.position, to_light, 0.999f,
+                                            idx, uni.light_tri_start,
+                                            triangles, triangle_count);
+                if (!blocked) {
+                    // Area light PDF = 1/A, geometry term
+                    float geom = cos_surface * cos_light / (dist * dist);
+                    float3 Le = uni.light_colour.xyz;
+                    float  A  = uni.light_area_val;
+                    radiance += throughput * albedo * Le * geom * A / M_PI_F;
+                }
+            }
+        }
 
-    // Specular parameters (Blinn-Phong)
-    float shininess = 32.0f;
-    float spec_strength = 0.15f;
-    float3 V = normalize(-view_dir);  // direction toward camera
-
-    for (int s = 0; s < N_LIGHT_SAMPLES; ++s) {
-        int su = int(rand_float(seed) * 2.0f);
-        int sv = int(rand_float(seed) * 2.0f);
-        su = min(su, 1); sv = min(sv, 1);
-        float3 sample_pos = sample_area_light(uni, seed, su, sv);
-        float3 dir = sample_pos - point.position;
-        float  r   = length(dir);
-        float3 dir_n = dir / r;
-
-        // Cosine at surface
-        float cos_surface = dot(dir_n, normal);
-        if (cos_surface <= 0.0f) continue;
-
-        // Cosine at light (light normal points into scene = +y)
-        float cos_light = dot(-dir_n, light_n);
-        if (cos_light <= 0.0f) continue;
-
-        // Shadow test: trace from surface to light sample point
-        GPUIntersection shadow = simple_intersect_gpu(point.position, dir,
-                                                       triangles, triangle_count);
-
-        // Skip light geometry itself in shadow test
-        bool blocked = (shadow.triangle_index >= 0) &&
-                       (shadow.distance < 1.0f) &&
-                       (shadow.triangle_index != idx) &&
-                       (shadow.triangle_index < uni.light_tri_start);
-
-        if (blocked) continue;
-
-        // Area light contribution:
-        // L = Le * cos_surface * cos_light * A / (N * π * r²)
-        float geom = cos_surface * cos_light * uni.light_area_val /
-                     (float(N_LIGHT_SAMPLES) * M_PI_F * r * r);
-        diffuse_accum += geom * uni.light_colour.xyz;
-
-        // Blinn-Phong specular: half-vector between view and light
-        float3 H = normalize(V + dir_n);
-        float NdotH = max(dot(normal, H), 0.0f);
-        float spec = pow(NdotH, shininess);
-        specular_accum += spec * geom * uni.light_colour.xyz;
-    }
-
-    return diffuse_accum + spec_strength * specular_accum;
-}
-
-// ---------------------------------------------------------------------------
-// indirect_light_one_bounce — 1-bounce global illumination
-// Shoots N_BOUNCES random cosine-weighted rays from the surface and averages.
-// ---------------------------------------------------------------------------
-constant int N_BOUNCES = 5;
-
-inline float3 indirect_light_one_bounce(GPUIntersection point,
-                                         constant GPUTriangle* triangles,
-                                         int triangle_count,
-                                         constant RenderUniforms& uni,
-                                         thread uint& seed,
-                                         thread float& ao_factor)
-{
-    int idx = point.triangle_index;
-    if (idx < 0) { ao_factor = 1.0f; return float3(0.0f); }
-
-    float3 normal = triangles[idx].normal.xyz;
-    float3 accum = float3(0.0f);
-    float ao_accum = 0.0f;
-    float ao_radius = 0.4f; // AO sampling radius
-
-    for (int b = 0; b < N_BOUNCES; ++b) {
+        // --- Sample next bounce direction (cosine-weighted diffuse) ---
         float3 bounce_dir = cosine_weighted_hemisphere(normal, seed);
 
-        GPUIntersection bounce_hit = simple_intersect_gpu(point.position, bounce_dir,
-                                                           triangles, triangle_count);
+        // Cosine-weighted PDF = cos(theta) / pi
+        // BRDF for Lambertian = albedo / pi
+        // throughput *= (albedo / pi) * cos(theta) / (cos(theta) / pi) = albedo
+        throughput *= albedo;
 
-        // AO: if hit is close, this point is occluded
-        if (bounce_hit.triangle_index >= 0 && bounce_hit.distance < ao_radius) {
-            ao_accum += 1.0f - (bounce_hit.distance / ao_radius);
+        // --- Russian Roulette (after depth 3) ---
+        if (depth >= 3) {
+            float p = max(max(throughput.x, throughput.y), throughput.z);
+            p = clamp(p, 0.05f, 0.95f);
+            if (rand_float(seed) > p) break;
+            throughput /= p;  // compensate for termination probability
         }
 
-        if (bounce_hit.triangle_index < 0) continue;
-
-        // Skip if bounce hit the light itself
-        int bounce_idx = bounce_hit.triangle_index;
-        if (bounce_idx >= uni.light_tri_start) continue;
-
-        float3 bounce_normal = triangles[bounce_idx].normal.xyz;
-
-        // Sample 1 random point on the area light for bounce illumination
-        int su = int(rand_float(seed) * 2.0f);
-        int sv = int(rand_float(seed) * 2.0f);
-        su = min(su, 1); sv = min(sv, 1);
-        float3 light_sample = sample_area_light(uni, seed, su, sv);
-        float3 bounce_to_light = light_sample - bounce_hit.position;
-        float bounce_r = length(bounce_to_light);
-        float3 bounce_dir_n = bounce_to_light / bounce_r;
-
-        float bounce_cos_surface = dot(bounce_dir_n, bounce_normal);
-        if (bounce_cos_surface <= 0.0f) continue;
-
-        float bounce_cos_light = dot(-bounce_dir_n, uni.light_normal.xyz);
-        if (bounce_cos_light <= 0.0f) continue;
-
-        GPUIntersection shadow_test = simple_intersect_gpu(bounce_hit.position,
-                                                            bounce_to_light,
-                                                            triangles, triangle_count);
-        if (shadow_test.triangle_index >= 0 &&
-            shadow_test.distance < 1.0f &&
-            shadow_test.triangle_index != bounce_idx &&
-            shadow_test.triangle_index < uni.light_tri_start)
-            continue;
-
-        // Area light formula for single sample
-        float bounce_geom = bounce_cos_surface * bounce_cos_light * uni.light_area_val /
-                            (M_PI_F * bounce_r * bounce_r);
-        float3 bounce_direct = bounce_geom * uni.light_colour.xyz;
-
-        accum += triangles[bounce_idx].color.xyz * bounce_direct;
+        // --- Advance ray ---
+        cur_origin = hit.position;
+        cur_dir    = bounce_dir;
     }
 
-    // AO: 0 = fully occluded, 1 = fully open
-    ao_factor = clamp(1.0f - 0.5f * ao_accum / float(N_BOUNCES), 0.35f, 1.0f);
-
-    // Clamp indirect to prevent fireflies
-    float3 result = accum / float(N_BOUNCES);
-    result = min(result, float3(1.5f));
-    return result;
+    return radiance;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,13 +305,11 @@ kernel void raytracer_kernel(
 
     if (x >= (uint)sw || y >= (uint)sh || sample_idx >= 9u) return;
 
-    // --- Seed --- use multiple PCG rounds with golden-ratio scrambling for better spatial decorrelation
+    // --- Seed ---
     uint frame_seed = pcg_hash(uint(uni.frame_number) * 1664525u + 1013904223u);
     uint seed = pcg_hash(pcg_hash(x * 1973u + y * 9277u + sample_idx * 26699u) + frame_seed);
 
     // --- Rotation matrix (yaw around Y axis) ---
-    // GLM mat3 col-major: col0=(cos,0,-sin), col1=(0,1,0), col2=(sin,0,cos)
-    // R*d = float3(cos*d.x + sin*d.z,  d.y,  -sin*d.x + cos*d.z)
     float yaw     = uni.yaw;
     float cos_yaw = cos(yaw);
     float sin_yaw = sin(yaw);
@@ -475,126 +324,48 @@ kernel void raytracer_kernel(
                     * (uni.focal - uni.camera_pos.z) / uni.f;
 
     // --- Anti-aliasing sub-sample grid (3×3, stratified jitter) ---
-    int a_idx = int(sample_idx) / 3;   // 0, 1, 2
-    int b_idx = int(sample_idx) % 3;   // 0, 1, 2
+    int a_idx = int(sample_idx) / 3;
+    int b_idx = int(sample_idx) % 3;
 
     float x_ = -8.0f + (float(b_idx) + rand_float(seed)) * (16.0f / 3.0f);
     float y_ = -8.0f + (float(a_idx) + rand_float(seed)) * (16.0f / 3.0f);
 
-    // --- Sub-pixel position (pinhole origin on image plane) ---
+    // --- Sub-pixel position ---
     float3 sub_pixel = float3(
         -0.5f + 0.5f / sw_f + (float(x) + x_) / sw_f,
         -0.5f + 0.5f / sh_f + (float(y) + y_) / sh_f,
         -2.0f
     );
 
-    // --- Focal point (where this ray converges regardless of lens jitter) ---
+    // --- Focal point ---
     float3 focal_point = float3(focal_x, focal_y, uni.focal);
 
-    // --- Thin-lens DOF: jitter ray origin on the lens disk ---
+    // --- Thin-lens DOF ---
     float3 ray_origin = sub_pixel;
     if (uni.aperture_radius > 0.0f) {
-        // Uniform disk sampling via concentric mapping
         float r1 = rand_float(seed);
         float r2 = rand_float(seed);
         float angle = 2.0f * M_PI_F * r1;
         float radius = uni.aperture_radius * sqrt(r2);
-        float lens_dx = radius * cos(angle);
-        float lens_dy = radius * sin(angle);
-        ray_origin.x += lens_dx;
-        ray_origin.y += lens_dy;
+        ray_origin.x += radius * cos(angle);
+        ray_origin.y += radius * sin(angle);
     }
 
-    // --- Ray direction (before rotation) ---
-    float3 d_local = float3(focal_point.x - ray_origin.x,
-                            focal_point.y - ray_origin.y,
-                            focal_point.z - ray_origin.z);
-
-    // Apply Y-axis rotation: R*d
+    // --- Ray direction ---
+    float3 d_local = focal_point - ray_origin;
     float3 d = float3(
          cos_yaw * d_local.x + sin_yaw * d_local.z,
          d_local.y,
         -sin_yaw * d_local.x + cos_yaw * d_local.z
     );
 
-    // --- Trace primary ray ---
-    GPUIntersection intersection = closest_intersect_gpu(
-        ray_origin, d,
-        triangles, uni.triangle_count,
-        0, uni);
+    // --- Path trace ---
+    float3 pixel_colour = path_trace(ray_origin, d,
+                                      triangles, uni.triangle_count,
+                                      uni, seed);
 
-    float3 pixel_colour = float3(0.0f);
-
-    if (intersection.triangle_index >= 0) {
-        // If we hit a light source triangle, render emissive with glow
-        if (intersection.triangle_index >= uni.light_tri_start) {
-            // Light source center (in post-transform space)
-            float3 light_center = uni.light_corner.xyz
-                                + 0.5f * uni.light_edge_u.xyz
-                                + 0.5f * uni.light_edge_v.xyz;
-            float3 to_center = intersection.position - light_center;
-            // Normalize distance by half-diagonal of the light rectangle
-            float half_diag = 0.5f * length(uni.light_edge_u.xyz + uni.light_edge_v.xyz);
-            float d_norm = length(to_center) / half_diag;
-
-            // Core emission: brighter in the center, slight falloff at edges
-            float core = 1.0f - 0.25f * d_norm * d_norm;
-            // Warm tint: center is slightly warm white
-            float3 warm_white = float3(1.0f, 0.97f, 0.92f);
-            pixel_colour = core * warm_white;
-        } else {
-        float3 light_area = direct_light_gpu(intersection,
-                                             triangles,
-                                             uni.triangle_count,
-                                             uni,
-                                             seed,
-                                             d);
-
-        if (intersection.is_mirror) {
-            // Mirror: re-trace reflected ray, light the reflected surface
-            float3 mir_n = triangles[intersection.triangle_index].normal.xyz;
-            float3 reflect_dir = d - 2.0f * dot(d, mir_n) * mir_n;
-            GPUIntersection mirror_isec = simple_intersect_gpu(
-                intersection.position, reflect_dir,
-                triangles, uni.triangle_count);
-
-            float3 mirror_light = float3(0.0f);
-            if (mirror_isec.triangle_index >= 0) {
-                mirror_light = direct_light_gpu(mirror_isec,
-                                                triangles,
-                                                uni.triangle_count,
-                                                uni, seed, reflect_dir);
-                float mirror_ao;
-                float3 mirror_indirect = indirect_light_one_bounce(
-                    mirror_isec, triangles, uni.triangle_count, uni, seed, mirror_ao);
-                mirror_light = 0.12f * uni.indirect_light.xyz + mirror_light
-                             + 1.0f * mirror_indirect;
-                mirror_light *= mirror_ao;
-            }
-            light_area = mirror_light;
-        } else {
-            light_area = 0.12f * uni.indirect_light.xyz + light_area;
-
-            // Add 1-bounce indirect illumination (global illumination / colour bleeding)
-            float ao;
-            float3 indirect = indirect_light_one_bounce(
-                intersection, triangles, uni.triangle_count, uni, seed, ao);
-            light_area += 1.0f * indirect;
-
-            // Apply ambient occlusion
-            light_area *= ao;
-        }
-
-        pixel_colour = light_area * intersection.colour;
-
-        // Artificial ceiling glow removed — GI bounce now handles
-        // natural light spill around the area light panel.
-
-        } // end non-light-triangle branch
-    }
-
-    // --- Exposure adjustment + Tone mapping: ACES Filmic (Narkowicz 2015) + gamma ---
-    pixel_colour *= 1.2f;  // exposure boost for brighter scene
+    // --- Exposure + ACES Filmic tone mapping + gamma ---
+    pixel_colour *= 1.2f;
     {
         float3 x = pixel_colour;
         float a = 2.51f;
