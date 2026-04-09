@@ -262,8 +262,25 @@ inline GPUIntersection closest_intersect_gpu(float3 orig,
     // --- Post-process hit ---
     if (result.triangle_index >= 0) {
         int idx = result.triangle_index;
-        result.colour    = triangles[idx].color.xyz;
-        result.is_mirror = false;
+
+        if (idx == 20 || idx == 21) {
+            // Mirror surface on tall block front face
+            float3 n = triangles[idx].normal.xyz;
+            float3 reflect_dir = dir - 2.0f * dot(dir, n) * n;
+            GPUIntersection mirror_hit = simple_intersect_gpu(result.position,
+                                                               reflect_dir,
+                                                               triangles,
+                                                               triangle_count);
+            if (mirror_hit.triangle_index >= 0) {
+                result.colour = mirror_hit.colour;
+            } else {
+                result.colour = float3(0.05f); // dark if reflection misses
+            }
+            result.is_mirror = true;
+        } else {
+            result.colour    = triangles[idx].color.xyz;
+            result.is_mirror = false;
+        }
     }
 
     return result;
@@ -415,7 +432,7 @@ inline float3 indirect_light_one_bounce(GPUIntersection point,
 
     // Clamp indirect to prevent fireflies
     float3 result = accum / float(N_BOUNCES);
-    result = min(result, float3(1.0f));
+    result = min(result, float3(1.5f));
     return result;
 }
 
@@ -533,14 +550,36 @@ kernel void raytracer_kernel(
                                              seed,
                                              d);
 
-        {
-            light_area = 0.08f * uni.indirect_light.xyz + light_area;
+        if (intersection.is_mirror) {
+            // Mirror: re-trace reflected ray, light the reflected surface
+            float3 mir_n = triangles[intersection.triangle_index].normal.xyz;
+            float3 reflect_dir = d - 2.0f * dot(d, mir_n) * mir_n;
+            GPUIntersection mirror_isec = simple_intersect_gpu(
+                intersection.position, reflect_dir,
+                triangles, uni.triangle_count);
+
+            float3 mirror_light = float3(0.0f);
+            if (mirror_isec.triangle_index >= 0) {
+                mirror_light = direct_light_gpu(mirror_isec,
+                                                triangles,
+                                                uni.triangle_count,
+                                                uni, seed, reflect_dir);
+                float mirror_ao;
+                float3 mirror_indirect = indirect_light_one_bounce(
+                    mirror_isec, triangles, uni.triangle_count, uni, seed, mirror_ao);
+                mirror_light = 0.12f * uni.indirect_light.xyz + mirror_light
+                             + 1.0f * mirror_indirect;
+                mirror_light *= mirror_ao;
+            }
+            light_area = mirror_light;
+        } else {
+            light_area = 0.12f * uni.indirect_light.xyz + light_area;
 
             // Add 1-bounce indirect illumination (global illumination / colour bleeding)
             float ao;
             float3 indirect = indirect_light_one_bounce(
                 intersection, triangles, uni.triangle_count, uni, seed, ao);
-            light_area += 0.7f * indirect;
+            light_area += 1.0f * indirect;
 
             // Apply ambient occlusion
             light_area *= ao;
@@ -554,8 +593,8 @@ kernel void raytracer_kernel(
         } // end non-light-triangle branch
     }
 
-    // --- Tone mapping: ACES Filmic approximation (Narkowicz 2015) + gamma ---
-    // Better highlight rolloff and richer color saturation than Reinhard
+    // --- Exposure adjustment + Tone mapping: ACES Filmic (Narkowicz 2015) + gamma ---
+    pixel_colour *= 1.2f;  // exposure boost for brighter scene
     {
         float3 x = pixel_colour;
         float a = 2.51f;
