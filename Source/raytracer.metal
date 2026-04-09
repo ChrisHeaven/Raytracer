@@ -238,29 +238,31 @@ inline float3 path_trace(float3 ray_origin,
             normal = -normal;
         }
 
-        // --- Next Event Estimation (NEE): sample area light directly ---
+        // --- Next Event Estimation (NEE): 2 light samples for lower variance ---
         {
-            float3 light_sample = sample_area_light_uniform(uni, seed);
-            float3 to_light = light_sample - hit.position;
-            float  dist     = length(to_light);
-            float3 to_light_n = to_light / dist;
+            float3 nee_accum = float3(0.0f);
+            for (int nee = 0; nee < 2; ++nee) {
+                float3 light_sample = sample_area_light_uniform(uni, seed);
+                float3 to_light = light_sample - hit.position;
+                float  dist     = length(to_light);
+                float3 to_light_n = to_light / dist;
 
-            float cos_surface = dot(to_light_n, normal);
-            float cos_light   = dot(-to_light_n, uni.light_normal.xyz);
+                float cos_surface = dot(to_light_n, normal);
+                float cos_light   = dot(-to_light_n, uni.light_normal.xyz);
 
-            if (cos_surface > 0.0f && cos_light > 0.0f) {
-                // Shadow test
-                bool blocked = shadow_test(hit.position, to_light, 0.999f,
-                                            idx, uni.light_tri_start,
-                                            triangles, triangle_count);
-                if (!blocked) {
-                    // Area light PDF = 1/A, geometry term
-                    float geom = cos_surface * cos_light / (dist * dist);
-                    float3 Le = uni.light_colour.xyz;
-                    float  A  = uni.light_area_val;
-                    radiance += throughput * albedo * Le * geom * A / M_PI_F;
+                if (cos_surface > 0.0f && cos_light > 0.0f) {
+                    bool blocked = shadow_test(hit.position, to_light, 0.999f,
+                                                idx, uni.light_tri_start,
+                                                triangles, triangle_count);
+                    if (!blocked) {
+                        float geom = cos_surface * cos_light / (dist * dist);
+                        float3 Le = uni.light_colour.xyz;
+                        float  A  = uni.light_area_val;
+                        nee_accum += Le * geom * A / M_PI_F;
+                    }
                 }
             }
+            radiance += throughput * albedo * nee_accum * 0.5f;
         }
 
         // --- Sample next bounce direction (cosine-weighted diffuse) ---
