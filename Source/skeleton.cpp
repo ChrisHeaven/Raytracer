@@ -176,7 +176,7 @@ int main(int argc, char* argv[])
     LoadTestModel(triangles);
 
 #ifdef USE_METAL
-    g_metal_renderer = new MetalRenderer(SCREEN_WIDTH, SCREEN_HEIGHT);
+    g_metal_renderer = new MetalRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 9);
     g_metal_renderer->uploadTriangles(triangles);
     cout << "Using Metal GPU renderer" << endl;
 #endif

@@ -32,10 +32,13 @@ struct RenderUniforms {
     int screen_height;
     int frame_number;
     float aperture_radius;
+    int accum_count;
+    float accum_weight_new;
+    int samples_per_pixel;
 };
 
 // ---------------------------------------------------------------------------
-// Helper: convert glm::vec3 → simd_float4 (w = 0)
+// Helper: convert glm::vec3 -> simd_float4 (w = 0)
 // ---------------------------------------------------------------------------
 static inline simd_float4 toFloat4(const glm::vec3& v) {
     return simd_make_float4(v.x, v.y, v.z, 0.0f);
@@ -44,10 +47,12 @@ static inline simd_float4 toFloat4(const glm::vec3& v) {
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
-MetalRenderer::MetalRenderer(int width, int height)
-    : _device(nullptr), _commandQueue(nullptr), _pipelineState(nullptr),
-      _triangleBuffer(nullptr), _uniformsBuffer(nullptr), _outputBuffer(nullptr),
-      _width(width), _height(height)
+MetalRenderer::MetalRenderer(int width, int height, int spp)
+    : _device(nullptr), _commandQueue(nullptr),
+      _raytracePipeline(nullptr), _accumPipeline(nullptr),
+      _triangleBuffer(nullptr), _uniformsBuffer(nullptr),
+      _sampleBuffer(nullptr), _accumGPUBuffer(nullptr), _outputBuffer(nullptr),
+      _width(width), _height(height), _spp(spp)
 {
     @autoreleasepool {
         // 1. Create device & command queue
@@ -62,7 +67,6 @@ MetalRenderer::MetalRenderer(int width, int height)
         NSString* path = [[NSBundle mainBundle] pathForResource:@"raytracer" ofType:@"metallib"];
 
         if (!path) {
-            // Try current working directory (running from Build/)
             NSString* cwd = [[NSFileManager defaultManager] currentDirectoryPath];
             NSString* candidate = [NSString stringWithFormat:@"%@/raytracer.metallib", cwd];
             if ([[NSFileManager defaultManager] fileExistsAtPath:candidate]) {
@@ -71,7 +75,6 @@ MetalRenderer::MetalRenderer(int width, int height)
         }
 
         if (!path) {
-            // Try directory containing the executable
             NSString* execPath = [[NSProcessInfo processInfo] arguments][0];
             NSString* execDir  = [execPath stringByDeletingLastPathComponent];
             NSString* candidate = [execDir stringByAppendingPathComponent:@"raytracer.metallib"];
@@ -95,18 +98,30 @@ MetalRenderer::MetalRenderer(int width, int height)
             return;
         }
 
-        // 4. Get compute kernel
-        id<MTLFunction> fn = [library newFunctionWithName:@"raytracer_kernel"];
-        if (!fn) {
-            fprintf(stderr, "[MetalRenderer] Function 'raytracer_kernel' not found in metallib.\n");
+        // 4. Get compute kernels
+        id<MTLFunction> rtFn = [library newFunctionWithName:@"raytracer_kernel"];
+        if (!rtFn) {
+            fprintf(stderr, "[MetalRenderer] Function 'raytracer_kernel' not found.\n");
+            return;
+        }
+        id<MTLFunction> accFn = [library newFunctionWithName:@"accumulate_kernel"];
+        if (!accFn) {
+            fprintf(stderr, "[MetalRenderer] Function 'accumulate_kernel' not found.\n");
             return;
         }
 
-        // 5. Build compute pipeline
-        id<MTLComputePipelineState> pipeline =
-            [device newComputePipelineStateWithFunction:fn error:&err];
-        if (!pipeline) {
-            fprintf(stderr, "[MetalRenderer] Failed to create pipeline: %s\n",
+        // 5. Build compute pipelines
+        id<MTLComputePipelineState> rtPipeline =
+            [device newComputePipelineStateWithFunction:rtFn error:&err];
+        if (!rtPipeline) {
+            fprintf(stderr, "[MetalRenderer] Failed to create raytrace pipeline: %s\n",
+                    [[err localizedDescription] UTF8String]);
+            return;
+        }
+        id<MTLComputePipelineState> accPipeline =
+            [device newComputePipelineStateWithFunction:accFn error:&err];
+        if (!accPipeline) {
+            fprintf(stderr, "[MetalRenderer] Failed to create accumulate pipeline: %s\n",
                     [[err localizedDescription] UTF8String]);
             return;
         }
@@ -116,20 +131,34 @@ MetalRenderer::MetalRenderer(int width, int height)
             [device newBufferWithLength:sizeof(RenderUniforms)
                                 options:MTLResourceStorageModeShared];
 
-        // 9 samples per pixel, each sample is a float4
-        NSUInteger outputBytes = (NSUInteger)width * height * 9 * sizeof(simd_float4);
-        id<MTLBuffer> outputBuf =
-            [device newBufferWithLength:outputBytes
+        // Per-sample buffer: W * H * SPP * float4
+        NSUInteger sampleBytes = (NSUInteger)width * height * spp * sizeof(simd_float4);
+        id<MTLBuffer> sampleBuf =
+            [device newBufferWithLength:sampleBytes
                                 options:MTLResourceStorageModeShared];
 
-        // 7. Store as void* (ARC bridge – we own the references)
-        _device        = (__bridge_retained void*)device;
-        _commandQueue  = (__bridge_retained void*)queue;
-        _pipelineState = (__bridge_retained void*)pipeline;
-        _uniformsBuffer = (__bridge_retained void*)uniformsBuf;
-        _outputBuffer   = (__bridge_retained void*)outputBuf;
+        // Accumulation buffer: W * H * float4
+        NSUInteger pixelBytes = (NSUInteger)width * height * sizeof(simd_float4);
+        id<MTLBuffer> accumBuf =
+            [device newBufferWithLength:pixelBytes
+                                options:MTLResourceStorageModeShared];
 
-        NSLog(@"Metal GPU renderer initialized: %@", device.name);
+        // Output buffer: W * H * float4
+        id<MTLBuffer> outputBuf =
+            [device newBufferWithLength:pixelBytes
+                                options:MTLResourceStorageModeShared];
+
+        // 7. Store as void* (ARC bridge)
+        _device          = (__bridge_retained void*)device;
+        _commandQueue    = (__bridge_retained void*)queue;
+        _raytracePipeline = (__bridge_retained void*)rtPipeline;
+        _accumPipeline   = (__bridge_retained void*)accPipeline;
+        _uniformsBuffer  = (__bridge_retained void*)uniformsBuf;
+        _sampleBuffer    = (__bridge_retained void*)sampleBuf;
+        _accumGPUBuffer  = (__bridge_retained void*)accumBuf;
+        _outputBuffer    = (__bridge_retained void*)outputBuf;
+
+        NSLog(@"Metal GPU renderer initialized: %@ (%d spp)", device.name, spp);
     }
 }
 
@@ -139,12 +168,15 @@ MetalRenderer::MetalRenderer(int width, int height)
 MetalRenderer::~MetalRenderer()
 {
     @autoreleasepool {
-        if (_outputBuffer)   { (void)(__bridge_transfer id<MTLBuffer>)_outputBuffer; }
-        if (_uniformsBuffer) { (void)(__bridge_transfer id<MTLBuffer>)_uniformsBuffer; }
-        if (_triangleBuffer) { (void)(__bridge_transfer id<MTLBuffer>)_triangleBuffer; }
-        if (_pipelineState)  { (void)(__bridge_transfer id<MTLComputePipelineState>)_pipelineState; }
-        if (_commandQueue)   { (void)(__bridge_transfer id<MTLCommandQueue>)_commandQueue; }
-        if (_device)         { (void)(__bridge_transfer id<MTLDevice>)_device; }
+        if (_outputBuffer)    { (void)(__bridge_transfer id<MTLBuffer>)_outputBuffer; }
+        if (_accumGPUBuffer)  { (void)(__bridge_transfer id<MTLBuffer>)_accumGPUBuffer; }
+        if (_sampleBuffer)    { (void)(__bridge_transfer id<MTLBuffer>)_sampleBuffer; }
+        if (_uniformsBuffer)  { (void)(__bridge_transfer id<MTLBuffer>)_uniformsBuffer; }
+        if (_triangleBuffer)  { (void)(__bridge_transfer id<MTLBuffer>)_triangleBuffer; }
+        if (_accumPipeline)   { (void)(__bridge_transfer id<MTLComputePipelineState>)_accumPipeline; }
+        if (_raytracePipeline) { (void)(__bridge_transfer id<MTLComputePipelineState>)_raytracePipeline; }
+        if (_commandQueue)    { (void)(__bridge_transfer id<MTLCommandQueue>)_commandQueue; }
+        if (_device)          { (void)(__bridge_transfer id<MTLDevice>)_device; }
     }
 }
 
@@ -171,7 +203,6 @@ void MetalRenderer::uploadTriangles(const std::vector<Triangle>& tris)
                                                 length:bytes
                                                options:MTLResourceStorageModeShared];
 
-        // Release old buffer if present
         if (_triangleBuffer) {
             (void)(__bridge_transfer id<MTLBuffer>)_triangleBuffer;
         }
@@ -185,7 +216,6 @@ void MetalRenderer::uploadTriangles(const std::vector<Triangle>& tris)
 void MetalRenderer::resetAccumulation()
 {
     _accumCount = 0;
-    _accumBuffer.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -194,111 +224,106 @@ void MetalRenderer::resetAccumulation()
 void MetalRenderer::render(const RenderParams& params, std::vector<glm::vec3>& pixels)
 {
     @autoreleasepool {
-        id<MTLDevice>                  device   = (__bridge id<MTLDevice>)_device;
-        id<MTLCommandQueue>            queue    = (__bridge id<MTLCommandQueue>)_commandQueue;
-        id<MTLComputePipelineState>    pipeline = (__bridge id<MTLComputePipelineState>)_pipelineState;
-        id<MTLBuffer>                  triBuf   = (__bridge id<MTLBuffer>)_triangleBuffer;
-        id<MTLBuffer>                  uniBuf   = (__bridge id<MTLBuffer>)_uniformsBuffer;
-        id<MTLBuffer>                  outBuf   = (__bridge id<MTLBuffer>)_outputBuffer;
+        id<MTLDevice>               device     = (__bridge id<MTLDevice>)_device;
+        id<MTLCommandQueue>         queue      = (__bridge id<MTLCommandQueue>)_commandQueue;
+        id<MTLComputePipelineState> rtPipeline = (__bridge id<MTLComputePipelineState>)_raytracePipeline;
+        id<MTLComputePipelineState> accPipeline = (__bridge id<MTLComputePipelineState>)_accumPipeline;
+        id<MTLBuffer>               triBuf     = (__bridge id<MTLBuffer>)_triangleBuffer;
+        id<MTLBuffer>               uniBuf     = (__bridge id<MTLBuffer>)_uniformsBuffer;
+        id<MTLBuffer>               smpBuf     = (__bridge id<MTLBuffer>)_sampleBuffer;
+        id<MTLBuffer>               accBuf     = (__bridge id<MTLBuffer>)_accumGPUBuffer;
+        id<MTLBuffer>               outBuf     = (__bridge id<MTLBuffer>)_outputBuffer;
 
-        if (!device || !pipeline || !triBuf) {
-            fprintf(stderr, "[MetalRenderer] render() called before initialisation or uploadTriangles().\n");
+        if (!device || !rtPipeline || !triBuf) {
+            fprintf(stderr, "[MetalRenderer] render() called before init or uploadTriangles().\n");
             return;
         }
 
-        // Detect parameter changes → reset accumulation
+        // Detect parameter changes -> reset accumulation
         if (params.camera_pos != _prevCameraPos ||
             params.light_pos != _prevLightPos ||
             params.yaw != _prevYaw) {
             _accumCount = 0;
-            _accumBuffer.clear();
             _prevCameraPos = params.camera_pos;
             _prevLightPos = params.light_pos;
             _prevYaw = params.yaw;
         }
 
         _frameNumber++;
+        _accumCount++;
+        int cap = std::min(_accumCount, 256);
 
         // 1. Fill uniforms
         RenderUniforms uni;
-        uni.camera_pos     = toFloat4(params.camera_pos);
-        uni.light_pos      = toFloat4(params.light_pos);
-        uni.light_colour   = toFloat4(params.light_colour);
-        uni.indirect_light = toFloat4(params.indirect_light);
-        uni.light_corner   = toFloat4(params.light_corner);
-        uni.light_edge_u   = toFloat4(params.light_edge_u);
-        uni.light_edge_v   = toFloat4(params.light_edge_v);
-        uni.light_normal   = toFloat4(params.light_normal);
-        uni.focal          = params.focal;
-        uni.f              = params.f;
-        uni.yaw            = params.yaw;
-        uni.light_area_val = params.light_area;
-        uni.triangle_count = (int)(triBuf.length / sizeof(GPUTriangle));
+        uni.camera_pos      = toFloat4(params.camera_pos);
+        uni.light_pos       = toFloat4(params.light_pos);
+        uni.light_colour    = toFloat4(params.light_colour);
+        uni.indirect_light  = toFloat4(params.indirect_light);
+        uni.light_corner    = toFloat4(params.light_corner);
+        uni.light_edge_u    = toFloat4(params.light_edge_u);
+        uni.light_edge_v    = toFloat4(params.light_edge_v);
+        uni.light_normal    = toFloat4(params.light_normal);
+        uni.focal           = params.focal;
+        uni.f               = params.f;
+        uni.yaw             = params.yaw;
+        uni.light_area_val  = params.light_area;
+        uni.triangle_count  = (int)(triBuf.length / sizeof(GPUTriangle));
         uni.light_tri_start = params.light_tri_start;
-        uni.screen_width   = params.screen_width;
-        uni.screen_height  = params.screen_height;
-        uni.frame_number   = _frameNumber;
+        uni.screen_width    = params.screen_width;
+        uni.screen_height   = params.screen_height;
+        uni.frame_number    = _frameNumber;
         uni.aperture_radius = params.aperture_radius;
+        uni.accum_count     = cap;
+        uni.accum_weight_new = 1.0f / float(cap);
+        uni.samples_per_pixel = _spp;
 
-        // 2. Copy uniforms into shared buffer
         memcpy(uniBuf.contents, &uni, sizeof(RenderUniforms));
 
-        // 3. Encode compute pass
+        // 2. Encode raytrace pass — 3D dispatch: W x H x SPP
         id<MTLCommandBuffer>         cmdBuf  = [queue commandBuffer];
         id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
 
-        [encoder setComputePipelineState:pipeline];
+        [encoder setComputePipelineState:rtPipeline];
         [encoder setBuffer:triBuf offset:0 atIndex:0];
         [encoder setBuffer:uniBuf offset:0 atIndex:1];
-        [encoder setBuffer:outBuf offset:0 atIndex:2];
+        [encoder setBuffer:smpBuf offset:0 atIndex:2];
+        [encoder setBuffer:accBuf offset:0 atIndex:3];
 
-        // 4. Dispatch – one thread per (x, y, sample)
-        MTLSize threadsPerGrid      = MTLSizeMake((NSUInteger)_width,
-                                                   (NSUInteger)_height,
-                                                   9);
-        MTLSize threadsPerThreadgroup = MTLSizeMake(8, 8, 1);
-        [encoder dispatchThreads:threadsPerGrid
-           threadsPerThreadgroup:threadsPerThreadgroup];
+        MTLSize rtGrid = MTLSizeMake((NSUInteger)_width,
+                                      (NSUInteger)_height,
+                                      (NSUInteger)_spp);
+        MTLSize rtGroup = MTLSizeMake(8, 8, 1);
+        [encoder dispatchThreads:rtGrid threadsPerThreadgroup:rtGroup];
 
         [encoder endEncoding];
+
+        // 3. Encode accumulation pass — 2D dispatch: W x H
+        id<MTLComputeCommandEncoder> accEncoder = [cmdBuf computeCommandEncoder];
+
+        [accEncoder setComputePipelineState:accPipeline];
+        [accEncoder setBuffer:uniBuf offset:0 atIndex:0];
+        [accEncoder setBuffer:smpBuf offset:0 atIndex:1];
+        [accEncoder setBuffer:accBuf offset:0 atIndex:2];
+        [accEncoder setBuffer:outBuf offset:0 atIndex:3];
+
+        MTLSize accGrid  = MTLSizeMake((NSUInteger)_width, (NSUInteger)_height, 1);
+        MTLSize accGroup = MTLSizeMake(16, 16, 1);
+        [accEncoder dispatchThreads:accGrid threadsPerThreadgroup:accGroup];
+
+        [accEncoder endEncoding];
+
+        // 4. Submit and wait
         [cmdBuf commit];
         [cmdBuf waitUntilCompleted];
 
-        // 5. Read back: layout is [pixelIndex * 9 + sampleIndex] → simd_float4
+        // 5. Read back: 1 float4 per pixel
         const simd_float4* buf = reinterpret_cast<const simd_float4*>(outBuf.contents);
 
         size_t npixels = (size_t)_width * _height;
         pixels.resize(npixels);
 
-        // Average the 9 AA samples for this frame
-        for (int y = 0; y < _height; ++y) {
-            for (int x = 0; x < _width; ++x) {
-                int pixelIdx = y * _width + x;
-                float r = 0.0f, g = 0.0f, b = 0.0f;
-                for (int s = 0; s < 9; ++s) {
-                    const simd_float4& sample = buf[pixelIdx * 9 + s];
-                    r += sample.x;
-                    g += sample.y;
-                    b += sample.z;
-                }
-                pixels[pixelIdx] = glm::vec3(r / 9.0f, g / 9.0f, b / 9.0f);
-            }
+        for (size_t i = 0; i < npixels; ++i) {
+            pixels[i] = glm::vec3(buf[i].x, buf[i].y, buf[i].z);
         }
-
-        // 6. Temporal accumulation (exponential moving average, cap at 64 frames)
-        _accumCount++;
-        if (_accumCount == 1) {
-            _accumBuffer = pixels;
-        } else {
-            int cap = std::min(_accumCount, 256);
-            float w_new = 1.0f / float(cap);
-            float w_old = 1.0f - w_new;
-            for (size_t i = 0; i < npixels; ++i) {
-                _accumBuffer[i] = w_old * _accumBuffer[i] + w_new * pixels[i];
-            }
-        }
-
-        // Return accumulated result
-        pixels = _accumBuffer;
     }
 }

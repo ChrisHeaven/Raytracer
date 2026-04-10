@@ -31,6 +31,9 @@ struct RenderUniforms {
     int    screen_height;
     int    frame_number;       // for temporal seed variation
     float  aperture_radius;    // thin-lens DOF (0 = pinhole)
+    int    accum_count;        // current accumulation frame count
+    float  accum_weight_new;   // weight for new frame (1/count)
+    int    samples_per_pixel;  // number of AA samples (e.g. 16)
 };
 
 struct GPUIntersection {
@@ -59,7 +62,7 @@ inline float rand_float(thread uint& seed) {
 }
 
 // ---------------------------------------------------------------------------
-// Möller–Trumbore ray-triangle intersection
+// Moller-Trumbore ray-triangle intersection
 // ---------------------------------------------------------------------------
 inline bool ray_triangle_intersect(float3 orig,
                                    float3 dir,
@@ -118,7 +121,7 @@ inline float3 sample_area_light_uniform(constant RenderUniforms& uni,
 }
 
 // ---------------------------------------------------------------------------
-// trace_ray — find closest hit among all triangles
+// trace_ray -- find closest hit among all triangles
 // ---------------------------------------------------------------------------
 inline GPUIntersection trace_ray(float3 orig,
                                   float3 dir,
@@ -151,7 +154,7 @@ inline GPUIntersection trace_ray(float3 orig,
 }
 
 // ---------------------------------------------------------------------------
-// shadow_test — any-hit test (returns true if blocked)
+// shadow_test -- any-hit test (returns true if blocked)
 // ---------------------------------------------------------------------------
 inline bool shadow_test(float3 orig,
                          float3 dir,
@@ -179,13 +182,6 @@ inline bool shadow_test(float3 orig,
 
 // ---------------------------------------------------------------------------
 // Path Tracing with Next Event Estimation (NEE)
-//
-// Each call traces ONE complete light path from the given ray origin/direction,
-// bouncing up to MAX_DEPTH times. At each bounce:
-//   1. NEE: sample a point on the area light, compute direct illumination
-//   2. Sample a random bounce direction (cosine-weighted for diffuse,
-//      perfect reflection for mirror surfaces)
-//   3. Russian Roulette after depth >= 3
 // ---------------------------------------------------------------------------
 constant int MAX_DEPTH = 8;
 
@@ -207,16 +203,15 @@ inline float3 path_trace(float3 ray_origin,
         // --- Trace ray ---
         GPUIntersection hit = trace_ray(cur_origin, cur_dir, triangles, triangle_count);
 
-        // Miss → black background
+        // Miss -> black background
         if (hit.triangle_index < 0) break;
 
         int    idx    = hit.triangle_index;
         float3 normal = triangles[idx].normal.xyz;
         float3 albedo = triangles[idx].color.xyz;
 
-        // --- Hit light source → add emission and stop ---
+        // --- Hit light source -> add emission and stop ---
         if (idx >= uni.light_tri_start) {
-            // Only count direct light hit on depth 0 (NEE handles the rest)
             if (depth == 0) {
                 float3 warm_white = float3(1.0f, 0.97f, 0.92f);
                 radiance += throughput * warm_white;
@@ -229,7 +224,6 @@ inline float3 path_trace(float3 ray_origin,
             float3 n = triangles[idx].normal.xyz;
             cur_dir = cur_dir - 2.0f * dot(cur_dir, n) * n;
             cur_origin = hit.position;
-            // Mirror doesn't attenuate throughput, just reflects
             continue;
         }
 
@@ -249,12 +243,10 @@ inline float3 path_trace(float3 ray_origin,
             float cos_light   = dot(-to_light_n, uni.light_normal.xyz);
 
             if (cos_surface > 0.0f && cos_light > 0.0f) {
-                // Shadow test
                 bool blocked = shadow_test(hit.position, to_light, 0.999f,
                                             idx, uni.light_tri_start,
                                             triangles, triangle_count);
                 if (!blocked) {
-                    // Area light PDF = 1/A, geometry term
                     float geom = cos_surface * cos_light / (dist * dist);
                     float3 Le = uni.light_colour.xyz;
                     float  A  = uni.light_area_val;
@@ -265,10 +257,6 @@ inline float3 path_trace(float3 ray_origin,
 
         // --- Sample next bounce direction (cosine-weighted diffuse) ---
         float3 bounce_dir = cosine_weighted_hemisphere(normal, seed);
-
-        // Cosine-weighted PDF = cos(theta) / pi
-        // BRDF for Lambertian = albedo / pi
-        // throughput *= (albedo / pi) * cos(theta) / (cos(theta) / pi) = albedo
         throughput *= albedo;
 
         // --- Russian Roulette (after depth 3) ---
@@ -276,7 +264,7 @@ inline float3 path_trace(float3 ray_origin,
             float p = max(max(throughput.x, throughput.y), throughput.z);
             p = clamp(p, 0.05f, 0.95f);
             if (rand_float(seed) > p) break;
-            throughput /= p;  // compensate for termination probability
+            throughput /= p;
         }
 
         // --- Advance ray ---
@@ -288,22 +276,24 @@ inline float3 path_trace(float3 ray_origin,
 }
 
 // ---------------------------------------------------------------------------
-// Kernel
+// Kernel — one thread per (pixel, sample), 3D dispatch W x H x SPP
 // ---------------------------------------------------------------------------
 kernel void raytracer_kernel(
     uint3                          gid            [[thread_position_in_grid]],
     constant GPUTriangle*          triangles      [[buffer(0)]],
     constant RenderUniforms&       uni            [[buffer(1)]],
-    device   float4*               output_buffer  [[buffer(2)]])
+    device   float4*               sample_buffer  [[buffer(2)]],
+    device   float4*               accum_buffer   [[buffer(3)]])
 {
     uint x          = gid.x;
     uint y          = gid.y;
     uint sample_idx = gid.z;
 
-    int sw = uni.screen_width;
-    int sh = uni.screen_height;
+    int sw  = uni.screen_width;
+    int sh  = uni.screen_height;
+    int spp = uni.samples_per_pixel;
 
-    if (x >= (uint)sw || y >= (uint)sh || sample_idx >= 9u) return;
+    if (x >= (uint)sw || y >= (uint)sh || sample_idx >= (uint)spp) return;
 
     // --- Seed ---
     uint frame_seed = pcg_hash(uint(uni.frame_number) * 1664525u + 1013904223u);
@@ -323,12 +313,14 @@ kernel void raytracer_kernel(
     float focal_y = (-0.5f + 0.5f / sh_f + float(y) / sh_f)
                     * (uni.focal - uni.camera_pos.z) / uni.f;
 
-    // --- Anti-aliasing sub-sample grid (3×3, stratified jitter) ---
-    int a_idx = int(sample_idx) / 3;
-    int b_idx = int(sample_idx) % 3;
+    // --- Anti-aliasing sub-sample grid (NxN stratified jitter) ---
+    int grid_side = (spp == 16) ? 4 : (spp == 25) ? 5 : 3;  // sqrt(spp)
+    int a_idx = int(sample_idx) / grid_side;
+    int b_idx = int(sample_idx) % grid_side;
 
-    float x_ = -8.0f + (float(b_idx) + rand_float(seed)) * (16.0f / 3.0f);
-    float y_ = -8.0f + (float(a_idx) + rand_float(seed)) * (16.0f / 3.0f);
+    float cell_size = 16.0f / float(grid_side);
+    float x_ = -8.0f + (float(b_idx) + rand_float(seed)) * cell_size;
+    float y_ = -8.0f + (float(a_idx) + rand_float(seed)) * cell_size;
 
     // --- Sub-pixel position ---
     float3 sub_pixel = float3(
@@ -376,7 +368,51 @@ kernel void raytracer_kernel(
     }
     pixel_colour = pow(pixel_colour, 1.0f / 2.2f);
 
-    // --- Write output ---
-    uint out_idx = (y * uint(sw) + x) * 9u + sample_idx;
-    output_buffer[out_idx] = float4(pixel_colour, 1.0f);
+    // --- Write per-sample result ---
+    uint out_idx = (y * uint(sw) + x) * uint(spp) + sample_idx;
+    sample_buffer[out_idx] = float4(pixel_colour, 1.0f);
+}
+
+// ---------------------------------------------------------------------------
+// Accumulation kernel — average samples + temporal accumulation
+// One thread per pixel (2D dispatch W x H)
+// ---------------------------------------------------------------------------
+kernel void accumulate_kernel(
+    uint2                      gid            [[thread_position_in_grid]],
+    constant RenderUniforms&   uni            [[buffer(0)]],
+    device   float4*           sample_buffer  [[buffer(1)]],
+    device   float4*           accum_buffer   [[buffer(2)]],
+    device   float4*           output_buffer  [[buffer(3)]])
+{
+    uint x = gid.x;
+    uint y = gid.y;
+    int sw  = uni.screen_width;
+    int sh  = uni.screen_height;
+    int spp = uni.samples_per_pixel;
+
+    if (x >= (uint)sw || y >= (uint)sh) return;
+
+    uint pixel_idx = y * uint(sw) + x;
+
+    // Average all samples for this pixel
+    float3 avg = float3(0.0f);
+    uint base = pixel_idx * uint(spp);
+    for (int s = 0; s < spp; ++s) {
+        avg += sample_buffer[base + uint(s)].xyz;
+    }
+    avg /= float(spp);
+
+    float4 new_val = float4(avg, 1.0f);
+
+    // Temporal accumulation
+    if (uni.accum_count <= 1) {
+        accum_buffer[pixel_idx] = new_val;
+    } else {
+        float w_new = uni.accum_weight_new;
+        float w_old = 1.0f - w_new;
+        float4 old_val = accum_buffer[pixel_idx];
+        accum_buffer[pixel_idx] = w_old * old_val + w_new * new_val;
+    }
+
+    output_buffer[pixel_idx] = accum_buffer[pixel_idx];
 }
