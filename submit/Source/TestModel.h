@@ -34,7 +34,7 @@ public:
 // -1 <= x <= +1
 // -1 <= y <= +1
 // -1 <= z <= +1
-inline void LoadTestModel( std::vector<Triangle>& triangles )
+void LoadTestModel( std::vector<Triangle>& triangles )
 {
 	using glm::vec3;
 
@@ -66,20 +66,20 @@ inline void LoadTestModel( std::vector<Triangle>& triangles )
 	vec3 H(0, L, L);
 
 	// Floor:
-	triangles.push_back( Triangle( C, B, A, white ) );
-	triangles.push_back( Triangle( C, D, B, white ) );
+	triangles.push_back( Triangle( C, B, A, green ) );
+	triangles.push_back( Triangle( C, D, B, green ) );
 
 	// Left wall
-	triangles.push_back( Triangle( A, E, C, red ) );
-	triangles.push_back( Triangle( C, E, G, red ) );
+	triangles.push_back( Triangle( A, E, C, purple ) );
+	triangles.push_back( Triangle( C, E, G, purple ) );
 
 	// Right wall
-	triangles.push_back( Triangle( F, B, D, green ) );
-	triangles.push_back( Triangle( H, F, D, green ) );
+	triangles.push_back( Triangle( F, B, D, yellow ) );
+	triangles.push_back( Triangle( H, F, D, yellow ) );
 
-	// Ceiling (indices 6-7)
-	triangles.push_back( Triangle( E, F, G, white ) );
-	triangles.push_back( Triangle( F, H, G, white ) );
+	// Ceiling
+	triangles.push_back( Triangle( E, F, G, cyan ) );
+	triangles.push_back( Triangle( F, H, G, cyan ) );
 
 	// Back wall
 	triangles.push_back( Triangle( G, D, C, white ) );
@@ -99,24 +99,24 @@ inline void LoadTestModel( std::vector<Triangle>& triangles )
 	H = vec3( 82, 165, 225);
 
 	// Front
-	triangles.push_back( Triangle(E, B, A, white) );
-	triangles.push_back( Triangle(E, F, B, white) );
+	triangles.push_back( Triangle(E, B, A, red) );
+	triangles.push_back( Triangle(E, F, B, red) );
 
 	// Front
-	triangles.push_back( Triangle(F, D, B, white) );
-	triangles.push_back( Triangle(F, H, D, white) );
+	triangles.push_back( Triangle(F, D, B, red) );
+	triangles.push_back( Triangle(F, H, D, red) );
 
 	// BACK
-	triangles.push_back( Triangle(H, C, D, white) );
-	triangles.push_back( Triangle(H, G, C, white) );
+	triangles.push_back( Triangle(H, C, D, red) );
+	triangles.push_back( Triangle(H, G, C, red) );
 
 	// LEFT
-	triangles.push_back( Triangle(G, E, C, white) );
-	triangles.push_back( Triangle(E, A, C, white) );
+	triangles.push_back( Triangle(G, E, C, red) );
+	triangles.push_back( Triangle(E, A, C, red) );
 
 	// TOP
-	triangles.push_back( Triangle(G, F, E, white) );
-	triangles.push_back( Triangle(G, H, F, white) );
+	triangles.push_back( Triangle(G, F, E, red) );
+	triangles.push_back( Triangle(G, H, F, red) );
 
 	// ---------------------------------------------------------------------------
 	// Tall block
@@ -132,24 +132,24 @@ inline void LoadTestModel( std::vector<Triangle>& triangles )
 	H = vec3(314, 330, 456);
 
 	// Front
-	triangles.push_back( Triangle(E, B, A, white) );
-	triangles.push_back( Triangle(E, F, B, white) );
+	triangles.push_back( Triangle(E, B, A, blue) );
+	triangles.push_back( Triangle(E, F, B, blue) );
 
 	// Front
-	triangles.push_back( Triangle(F, D, B, white) );
-	triangles.push_back( Triangle(F, H, D, white) );
+	triangles.push_back( Triangle(F, D, B, blue) );
+	triangles.push_back( Triangle(F, H, D, blue) );
 
 	// BACK
-	triangles.push_back( Triangle(H, C, D, white) );
-	triangles.push_back( Triangle(H, G, C, white) );
+	triangles.push_back( Triangle(H, C, D, blue) );
+	triangles.push_back( Triangle(H, G, C, blue) );
 
 	// LEFT
-	triangles.push_back( Triangle(G, E, C, white) );
-	triangles.push_back( Triangle(E, A, C, white) );
+	triangles.push_back( Triangle(G, E, C, blue) );
+	triangles.push_back( Triangle(E, A, C, blue) );
 
 	// TOP
-	triangles.push_back( Triangle(G, F, E, white) );
-	triangles.push_back( Triangle(G, H, F, white) );
+	triangles.push_back( Triangle(G, F, E, blue) );
+	triangles.push_back( Triangle(G, H, F, blue) );
 
 
 	// ----------------------------------------------
@@ -175,24 +175,6 @@ inline void LoadTestModel( std::vector<Triangle>& triangles )
 
 		triangles[i].ComputeNormal();
 	}
-
-	// ---------------------------------------------------------------------------
-	// Ceiling light panel — emissive rectangle flush with ceiling
-	// Post-transform coordinates. Ceiling is at y = -1.
-	// Light size: 0.4 x 0.3, centered at (0, -1, -0.5)
-	// y = -1.001 to sit just above ceiling and avoid z-fighting
-
-	float ly = -0.999f;
-
-	vec3 LA(-0.2f, ly, -0.65f);
-	vec3 LB( 0.2f, ly, -0.65f);
-	vec3 LC( 0.2f, ly, -0.35f);
-	vec3 LD(-0.2f, ly, -0.35f);
-	vec3 light_white(1.0f, 1.0f, 1.0f);
-
-	// Light emissive panel (index 30-31)
-	triangles.push_back( Triangle( LA, LB, LC, light_white ) );  // 30
-	triangles.push_back( Triangle( LA, LC, LD, light_white ) );  // 31
 }
 
 #endif
